@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::animate;
-use crate::home::{caption_font, data_dir, workers_dir};
+use crate::home::{app_dir, cache_dir, caption_font, data_dir, workers_dir};
 
 fn tool(name: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(name).args(args).output().ok()?;
@@ -17,8 +17,12 @@ fn line(ok: bool, what: &str, detail: &str) {
 }
 
 fn hf_cached(repo: &str) -> bool {
-    let home = std::env::var("HOME").unwrap_or_default();
-    Path::new(&home).join(".cache/huggingface/hub").join(format!("models--{}", repo.replace('/', "--"))).exists()
+    cache_dir().join("huggingface/hub").join(format!("models--{}", repo.replace('/', "--"))).exists()
+}
+
+fn size_gb(path: &Path) -> f64 {
+    walkdir::WalkDir::new(path).into_iter().flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum::<u64>() as f64
+        / 1024f64.powi(3)
 }
 
 fn sysctl(key: &str) -> Option<u64> {
@@ -33,7 +37,10 @@ fn free_gb(path: &Path) -> Option<f64> {
 }
 
 pub fn run() {
-    println!("données : {}\nworkers : {}\n", data_dir().display(), workers_dir().display());
+    println!("app     : {} ({:.1} Go au total)", app_dir().display(), size_gb(&app_dir()));
+    println!("données : {} (planches, projets, modèles, caches)", data_dir().display());
+    println!("workers : {}", workers_dir().display());
+    println!("tout supprimer : manga uninstall\n");
     match tool("ffmpeg", &["-version"]) {
         Some(v) => line(true, "ffmpeg", &v),
         None => line(false, "ffmpeg", "brew install ffmpeg"),
@@ -64,7 +71,7 @@ pub fn run() {
     if let Some(gb) = ram {
         line(gb >= 16.0, "mémoire", &format!("{gb:.0} Go{}", if gb < 24.0 { " : animation possible en basse résolution seulement" } else { "" }));
     }
-    let probe = if data_dir().exists() { data_dir() } else { Path::new(&std::env::var("HOME").unwrap_or_default()).to_path_buf() };
+    let probe = app_dir();
     if let Some(gb) = free_gb(&probe) {
         line(gb > 10.0, "disque libre", &format!("{gb:.0} Go"));
     }

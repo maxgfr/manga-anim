@@ -13,14 +13,26 @@ CLI pour transformer des planches de manga en vidéo, en local sur Mac (Apple Si
 
 ```sh
 brew install ffmpeg uv poppler        # poppler pour les PDF ; `brew install unar` pour les CBR
-cargo install --path .                # binaire `manga`
+cargo build --release
+ln -s "$PWD/target/release/manga" ~/.cargo/bin/manga      # lien, pas de copie
 (cd workers && uv sync --extra ja)    # workers ML (+ manga-ocr pour le japonais)
 ln -s "$PWD/skills/manga" ~/.claude/skills/manga
 manga doctor
 ```
 
 Les modèles d'analyse (Magi v2, ~4 Go) et de voix (Kokoro, ~350 Mo) se téléchargent au premier usage.
-L'animation est optionnelle : `manga models install wan --bits 4` (~34 Go téléchargés, convertis puis supprimés).
+
+### Tout est dans ce dossier
+
+Code, venv Python (`workers/.venv`), planches, projets, vidéos, modèles et caches (`data/`) :
+rien n'est écrit dans `~/.cache` ni ailleurs. Les workers reçoivent `HF_HOME`, `TORCH_HOME`,
+`UV_CACHE_DIR`, `XDG_CACHE_HOME` et `MPLCONFIGDIR` pointés vers `data/cache/`.
+Les deux seuls éléments hors du dossier sont des liens symboliques (binaire et skill).
+
+`manga uninstall --yes` supprime le dossier et ces deux liens. Sans `--yes`, la commande affiche
+seulement ce qui serait supprimé. `MANGA_HOME` permet de mettre `data/` ailleurs.
+
+L'animation est optionnelle : `manga models install wan --bits 4` (~34 Go téléchargés, convertis dans `data/models/`, puis la source est supprimée).
 
 ## Exemple
 
@@ -31,7 +43,7 @@ manga analyze vs-s3          # cases, bulles, OCR, locuteurs
 manga read vs-s3             # liseuse : vérifier, corriger
 manga voice vs-s3            # voix (cast.toml : une voix par personnage)
 manga timeline vs-s3         # timeline.json = le montage, éditable
-manga render vs-s3           # → ~/.manga-anim/projects/vs-s3/out/vs-s3.mp4
+manga render vs-s3           # → data/projects/vs-s3/out/vs-s3.mp4
 ```
 
 Pour animer quelques cases : `manga animate vs-s3 12 27 --prompt "snow falling, cape flapping"`

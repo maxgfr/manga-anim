@@ -1,14 +1,24 @@
-//! Emplacements sur disque : données (`MANGA_HOME`) et workers Python.
+//! Emplacements sur disque. Tout vit dans le dossier de l'app : code, venv Python,
+//! données, modèles et caches. Supprimer ce dossier supprime tout.
 
 use std::path::{Path, PathBuf};
 
-/// Racine des données : `library/` (planches importées) et `projects/`.
+/// Dossier du dépôt qui a compilé le binaire.
+pub fn app_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Racine des données : `library/`, `projects/`, `models/`, `cache/`.
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_HOME") {
         return PathBuf::from(dir);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    Path::new(&home).join(".manga-anim")
+    app_dir().join("data")
+}
+
+/// Caches des workers (Hugging Face, torch, uv…), redirigés ici plutôt que dans `~/.cache`.
+pub fn cache_dir() -> PathBuf {
+    data_dir().join("cache")
 }
 
 pub fn library_dir() -> PathBuf {
@@ -24,7 +34,7 @@ pub fn workers_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_WORKERS") {
         return PathBuf::from(dir);
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("workers")
+    app_dir().join("workers")
 }
 
 /// Police utilisée pour les sous-titres. Arial Unicode couvre latin, kana, kanji et hangul.

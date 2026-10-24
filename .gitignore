@@ -3,7 +3,5 @@ workers/.venv/
 __pycache__/
 *.pyc
 .impeccable/
-projects/
-library/
-models/
+/data/
 .DS_Store

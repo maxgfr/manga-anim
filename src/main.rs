@@ -13,6 +13,7 @@ mod reader;
 mod render;
 mod sources;
 mod timeline;
+mod uninstall;
 mod voice;
 mod worker;
 
@@ -145,6 +146,11 @@ enum Cmd {
     Models {
         #[command(subcommand)]
         cmd: ModelsCmd,
+    },
+    /// Supprime tout : le dossier de l'app (données, modèles, caches compris) et ses liens.
+    Uninstall {
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -460,6 +466,7 @@ fn main() -> Result<()> {
             let opts = render::RenderOptions { out: PathBuf::new(), shots: Vec::new(), show_speaker: false, captions: true, jobs: 4 };
             render(&p, None, opts, no_animate, animate::Settings::default())?;
         }
+        Cmd::Uninstall { yes } => uninstall::run(yes)?,
         Cmd::Models { cmd } => match cmd {
             ModelsCmd::Install { model, bits } => {
                 if model != "wan" {

@@ -1,0 +1,9 @@
+/target
+workers/.venv/
+__pycache__/
+*.pyc
+.impeccable/
+projects/
+library/
+models/
+.DS_Store

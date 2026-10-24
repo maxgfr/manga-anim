@@ -1,0 +1,39 @@
+[project]
+name = "mangaw"
+version = "0.1.0"
+description = "Workers ML de manga-anim (analyse, OCR, voix, animation)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "pillow",
+    "opencv-python-headless",
+    "torch",
+    "transformers>=4.40,<4.50",
+    "einops",
+    "timm",
+    "shapely",
+    "scipy",
+    "pulp",
+    "matplotlib",
+    "networkx",
+    "tqdm",
+    "pyobjc-framework-Vision",
+    "pyobjc-framework-Quartz",
+    "mlx-audio",
+    "misaki[en]",
+    "soundfile",
+    "loguru",
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+
+[project.optional-dependencies]
+ja = ["manga-ocr", "misaki[ja]"]
+zh = ["misaki[zh]"]
+animate = ["mlx-video @ git+https://github.com/Blaizzy/mlx-video"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true

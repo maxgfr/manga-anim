@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liseuse manga-anim</title>
+<style>
+  :root {
+    --bg: #15161a; --panel: #1d1f25; --line: #2d3039; --text: #e8e6e1; --muted: #9a9ca5;
+    --accent: #f2b84b; --bubble: #4fb3a9; --sfx: #8b8f9a; --danger: #e5726b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Helvetica Neue", sans-serif; height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
+  header .where { color: var(--muted); font-variant-numeric: tabular-nums; }
+  header .spacer { flex: 1; }
+  button { background: #2a2d35; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: #4a4e5a; }
+  button.primary { background: var(--accent); color: #1a1a1a; border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  label.toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); cursor: pointer; }
+  main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+  #stage { overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
+  #page { position: relative; max-width: 100%; }
+  #page img { display: block; max-height: calc(100vh - 90px); max-width: 100%; }
+  #page svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  svg .panel { fill: none; stroke: var(--accent); stroke-width: 3; opacity: .7; }
+  svg .panel-n { fill: var(--accent); font-weight: 700; }
+  svg .text { fill: rgba(79,179,169,.12); stroke: var(--bubble); stroke-width: 3; cursor: pointer; }
+  svg .text.sfx { stroke: var(--sfx); stroke-dasharray: 8 6; fill: rgba(139,143,154,.08); }
+  svg .text.sel { stroke: #fff; stroke-width: 5; fill: rgba(255,255,255,.15); }
+  svg .text.speaking { stroke: var(--accent); stroke-width: 6; fill: rgba(242,184,75,.22); }
+  svg .badge { fill: var(--bubble); }
+  svg .badge-n { fill: #0d1514; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  body.no-overlay #page svg { display: none; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  aside .head { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  #list { overflow: auto; padding: 8px; }
+  .item { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #22252c; }
+  .item.sel { border-color: #fff; }
+  .item.sfx { opacity: .6; }
+  .item .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .item .n { background: var(--bubble); color: #0d1514; border-radius: 10px; min-width: 22px; text-align: center; font-weight: 700; font-size: 12px; }
+  .item.sfx .n { background: var(--sfx); }
+  .item input[type=text] { flex: 1; min-width: 0; background: #181a1f; color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; font: inherit; }
+  .item textarea { width: 100%; resize: vertical; min-height: 44px; background: #181a1f; color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; font: inherit; }
+  .item button { padding: 2px 7px; }
+  aside .foot { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  #status { color: var(--muted); flex: 1; }
+  #status.dirty { color: var(--accent); }
+  #status.error { color: var(--danger); }
+  .empty { color: var(--muted); padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid var(--line); max-height: 45vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">…</h1>
+  <span class="where" id="where"></span>
+  <span class="spacer"></span>
+  <label class="toggle"><input type="checkbox" id="overlay" checked> Calques</label>
+  <button id="read" title="Lit les bulles de la page dans l'ordre (Espace)">▶ Lecture</button>
+  <button id="prev">◀</button>
+  <button id="next">▶</button>
+</header>
+<main>
+  <div id="stage"><div id="page"><svg id="svg"></svg></div></div>
+  <aside>
+    <div class="head"><span>Bulles dans l'ordre de lecture</span><span id="count"></span></div>
+    <div id="list"></div>
+    <div class="foot"><span id="status">—</span><button class="primary" id="save" disabled>Enregistrer</button></div>
+  </aside>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+// Créée en JS : pas de balise <img> sans source avant le chargement de la première page.
+const pageImg = Object.assign(new Image(), { id: "img", alt: "" });
+$("page").prepend(pageImg);
+let project, index = 0, data = null, selected = null, dirty = false, reading = null;
+
+function setStatus(text, cls = "") { $("status").textContent = text; $("status").className = cls; }
+function markDirty() { dirty = true; $("save").disabled = false; setStatus("modifications non enregistrées", "dirty"); }
+
+async function load(i) {
+  if (dirty) await save();
+  stopReading();
+  index = Math.max(0, Math.min(project.pages.length - 1, i));
+  const page = project.pages[index];
+  $("where").textContent = `page ${index + 1}/${project.pages.length} · ch${page.chapter} p${page.page}`;
+  $("prev").disabled = index === 0;
+  $("next").disabled = index === project.pages.length - 1;
+  pageImg.src = `/pages/${encodeURIComponent(page.file)}`;
+  selected = null;
+  const res = await fetch(`/api/analysis/${index}`);
+  if (!res.ok) { data = null; draw(); setStatus("pas encore analysée : manga analyze " + project.name, "error"); return; }
+  data = await res.json();
+  dirty = false; $("save").disabled = true; setStatus(`détecteur : ${data.detector || "?"}`);
+  draw();
+  history.replaceState(null, "", `#${index + 1}`);
+}
+
+function draw() {
+  const svg = $("svg"), list = $("list");
+  svg.innerHTML = ""; list.innerHTML = "";
+  if (!data) { list.innerHTML = '<div class="empty">Aucune analyse pour cette page.</div>'; $("count").textContent = ""; return; }
+  svg.setAttribute("viewBox", `0 0 ${data.width} ${data.height}`);
+  const fontSize = Math.max(18, data.width / 45);
+  data.panels.forEach((p, k) => {
+    const [x1, y1, x2, y2] = p.bbox;
+    svg.append(el("rect", { class: "panel", x: x1, y: y1, width: x2 - x1, height: y2 - y1 }));
+    const t = el("text", { class: "panel-n", x: x1 + 8, y: y1 + fontSize + 4, "font-size": fontSize });
+    t.textContent = `#${k + 1}`; svg.append(t);
+  });
+  data.texts.forEach((t, i) => {
+    const [x1, y1, x2, y2] = t.bbox;
+    const cls = ["text", t.essential ? "" : "sfx", selected === i ? "sel" : "", reading === i ? "speaking" : ""].join(" ");
+    const r = el("rect", { class: cls, x: x1, y: y1, width: x2 - x1, height: y2 - y1, rx: 10 });
+    r.addEventListener("click", () => select(i));
+    svg.append(r);
+    const rad = fontSize * 0.75;
+    svg.append(el("circle", { class: "badge", cx: x1, cy: y1, r: rad }));
+    const n = el("text", { class: "badge-n", x: x1, y: y1, "font-size": fontSize * 0.85 }); n.textContent = i + 1; svg.append(n);
+    list.append(item(t, i));
+  });
+  const n = data.texts.filter((t) => t.essential).length;
+  $("count").textContent = `${n} lues · ${data.texts.length - n} ignorées`;
+}
+
+function el(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+function item(t, i) {
+  const div = document.createElement("div");
+  div.className = `item${t.essential ? "" : " sfx"}${selected === i ? " sel" : ""}`;
+  div.id = `item-${i}`;
+  div.innerHTML = `
+    <div class="row">
+      <span class="n">${i + 1}</span>
+      <input type="text" placeholder="locuteur (vide = narrateur)">
+      <label title="Lue et sous-titrée"><input type="checkbox"> lue</label>
+    </div>
+    <textarea rows="2"></textarea>
+    <div class="row" style="margin:6px 0 0">
+      <button data-a="up" title="Plus tôt">▲</button><button data-a="down" title="Plus tard">▼</button>
+      <button data-a="play" title="Écouter">🔊</button>
+      <span style="flex:1"></span><span style="color:var(--muted);font-size:12px">${t.id}</span>
+    </div>`;
+  const [speaker, essential] = div.querySelectorAll("input");
+  const text = div.querySelector("textarea");
+  speaker.value = t.speaker || ""; essential.checked = t.essential; text.value = t.text;
+  speaker.oninput = () => { t.speaker = speaker.value.trim() || null; markDirty(); };
+  text.oninput = () => { t.text = text.value; markDirty(); };
+  essential.onchange = () => { t.essential = essential.checked; markDirty(); draw(); };
+  div.addEventListener("focusin", () => { if (selected !== i) { selected = i; highlight(); } });
+  div.querySelectorAll("button").forEach((b) => b.onclick = () => {
+    if (b.dataset.a === "play") return play(i);
+    const j = b.dataset.a === "up" ? i - 1 : i + 1;
+    if (j < 0 || j >= data.texts.length) return;
+    [data.texts[i], data.texts[j]] = [data.texts[j], data.texts[i]];
+    selected = j; markDirty(); draw();
+  });
+  return div;
+}
+
+function highlight() {
+  document.querySelectorAll("svg .text").forEach((r, k) => r.classList.toggle("sel", k === selected));
+  document.querySelectorAll(".item").forEach((d, k) => d.classList.toggle("sel", k === selected));
+}
+
+function select(i) {
+  selected = i; highlight();
+  $(`item-${i}`).scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+async function save() {
+  if (!data || !dirty) return;
+  const res = await fetch(`/api/analysis/${index}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+  if (res.ok) { dirty = false; $("save").disabled = true; setStatus("enregistré — relance manga voice puis manga timeline"); }
+  else setStatus("échec : " + await res.text(), "error");
+}
+
+let audio = null;
+function play(i) {
+  return new Promise((resolve) => {
+    const t = data.texts[i];
+    if (audio) audio.pause();
+    audio = new Audio(`/audio/${encodeURIComponent(t.id)}.wav`);
+    const fallback = () => setTimeout(resolve, 600 + t.text.length * 70);
+    audio.onended = resolve;
+    audio.onerror = fallback;
+    audio.play().catch(fallback);
+  });
+}
+
+function stopReading() { reading = null; if (audio) audio.pause(); $("read").textContent = "▶ Lecture"; }
+
+async function readPage() {
+  if (reading !== null) return stopReading();
+  $("read").textContent = "■ Stop";
+  const start = index;
+  for (let i = 0; i < data.texts.length; i++) {
+    if (!data.texts[i].essential) continue;
+    reading = i; draw(); select(i);
+    await play(i);
+    if (reading === null || index !== start) return;
+  }
+  stopReading(); draw();
+  if (index < project.pages.length - 1) { await load(index + 1); readPage(); }
+}
+
+function step(delta) { load(index + delta); }
+
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
+  if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  const rtl = project && project.direction === "rtl";
+  if (e.key === "ArrowRight") step(rtl ? -1 : 1);
+  if (e.key === "ArrowLeft") step(rtl ? 1 : -1);
+  if (e.key === "o") { $("overlay").click(); }
+  if (e.key === " ") { e.preventDefault(); readPage(); }
+});
+$("prev").onclick = () => step(-1);
+$("next").onclick = () => step(1);
+$("save").onclick = save;
+$("read").onclick = readPage;
+$("overlay").onchange = (e) => document.body.classList.toggle("no-overlay", !e.target.checked);
+window.addEventListener("beforeunload", (e) => { if (dirty) e.preventDefault(); });
+
+(async () => {
+  project = await (await fetch("/api/project")).json();
+  $("title").textContent = project.title;
+  document.title = `${project.title} — liseuse`;
+  await load((parseInt(location.hash.slice(1)) || 1) - 1);
+})();
+</script>
+</body>
+</html>

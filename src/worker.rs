@@ -10,7 +10,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
-use crate::home::{cache_dir, workers_dir};
+use crate::home::{cache_dir, is_installed, venv_dir, workers_dir};
 
 pub fn run(task: &str, job: &impl Serialize, job_path: &Path) -> Result<()> {
     if let Some(parent) = job_path.parent() {
@@ -19,12 +19,17 @@ pub fn run(task: &str, job: &impl Serialize, job_path: &Path) -> Result<()> {
     fs::write(job_path, serde_json::to_string_pretty(job)?)?;
     let workers = workers_dir();
     let cache = cache_dir();
-    let status = Command::new("uv")
-        .args(["run", "--quiet", "--project"])
-        .arg(&workers)
+    let mut cmd = Command::new("uv");
+    cmd.args(["run", "--quiet", "--project"]).arg(&workers);
+    if is_installed() {
+        // Le préfixe d'installation n'est pas à nous : on n'y réécrit pas uv.lock.
+        cmd.arg("--frozen");
+    }
+    let status = cmd
         .args(["python", "-m", &format!("mangaw.{task}")])
         .arg(job_path)
         // Modèles et caches dans le dossier de l'app, jamais dans ~/.cache.
+        .env("UV_PROJECT_ENVIRONMENT", venv_dir())
         .env("HF_HOME", cache.join("huggingface"))
         .env("TORCH_HOME", cache.join("torch"))
         .env("UV_CACHE_DIR", cache.join("uv"))

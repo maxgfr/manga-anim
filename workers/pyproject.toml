@@ -1,5 +1,6 @@
 [project]
 name = "mangaw"
+license = "MIT"
 version = "0.1.0"
 description = "Workers ML de manga-anim (analyse, OCR, voix, animation)"
 requires-python = ">=3.12,<3.13"

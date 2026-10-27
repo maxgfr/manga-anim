@@ -32,6 +32,21 @@ Les deux seuls éléments hors du dossier sont des liens symboliques (binaire et
 `manga uninstall --yes` supprime le dossier et ces deux liens. Sans `--yes`, la commande affiche
 seulement ce qui serait supprimé. `MANGA_HOME` permet de mettre `data/` ailleurs.
 
+### Installation hors du dépôt (Homebrew, préfixe)
+
+Le binaire détecte s'il est installé : `<préfixe>/bin/manga` à côté de
+`<préfixe>/share/manga-anim/{workers,skills}` (la disposition d'une formule Homebrew). Il prend
+alors ses workers dans le préfixe et met tout le reste (venv, planches, projets, modèles, caches)
+dans `~/Library/Application Support/manga-anim`. `manga uninstall --yes` vide ce dossier ; le
+binaire se retire avec le gestionnaire de paquets.
+
+```sh
+P=/opt/manga-anim   # ou le préfixe d'une formule
+cargo install --path . --root "$P"
+mkdir -p "$P/share/manga-anim" && cp -R workers skills "$P/share/manga-anim/"
+manga doctor        # affiche la commande uv sync à lancer pour créer le venv
+```
+
 L'animation est optionnelle : `manga models install wan --bits 4` (~34 Go téléchargés, convertis dans `data/models/`, puis la source est supprimée).
 
 ## Exemple
@@ -76,6 +91,8 @@ cargo test -- --ignored          # E2E : CBZ synthétique → vidéo (macOS, wor
 ```
 
 ## Modèles et licences
+
+Le code de manga-anim est sous licence [MIT](LICENSE). Les modèles ont leur propre licence :
 
 - [Magi v2](https://huggingface.co/ragavsachdeva/magiv2) : licence recherche, usage personnel uniquement.
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) : Apache 2.0.

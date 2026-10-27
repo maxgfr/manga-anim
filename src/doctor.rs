@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::animate;
-use crate::home::{app_dir, cache_dir, caption_font, data_dir, workers_dir};
+use crate::home::{app_dir, cache_dir, caption_font, data_dir, venv_dir, workers_dir};
 
 fn tool(name: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(name).args(args).output().ok()?;
@@ -37,8 +37,8 @@ fn free_gb(path: &Path) -> Option<f64> {
 }
 
 pub fn run() {
-    println!("app     : {} ({:.1} Go au total)", app_dir().display(), size_gb(&app_dir()));
-    println!("données : {} (planches, projets, modèles, caches)", data_dir().display());
+    println!("app     : {} ({:.1} Go)", app_dir().display(), size_gb(&app_dir()));
+    println!("données : {} ({:.1} Go : planches, projets, modèles, caches)", data_dir().display(), size_gb(&data_dir()));
     println!("workers : {}", workers_dir().display());
     println!("tout supprimer : manga uninstall\n");
     match tool("ffmpeg", &["-version"]) {
@@ -49,8 +49,9 @@ pub fn run() {
         Some(v) => line(true, "uv", &v),
         None => line(false, "uv", "brew install uv"),
     }
-    let venv = workers_dir().join(".venv");
-    line(venv.exists(), "workers Python", if venv.exists() { "prêts" } else { "cd workers && uv sync" });
+    let venv = venv_dir();
+    let sync = format!("UV_PROJECT_ENVIRONMENT=\"{}\" uv sync --project \"{}\" --extra ja", venv.display(), workers_dir().display());
+    line(venv.exists(), "workers Python", if venv.exists() { "prêts" } else { &sync });
     let font = caption_font();
     line(font.exists(), "police sous-titres", &font.display().to_string());
     line(tool("pdftoppm", &["-v"]).is_some(), "import PDF", "pdftoppm (brew install poppler)");

@@ -8,6 +8,8 @@ description: Transformer des planches de manga en vidéo en local avec la CLI `m
 CLI `manga` (dépôt : ~/Downloads/manga-anim). Tout tourne en local sur le Mac.
 Tout vit dans le dossier de l'app, y compris les modèles et les caches : `data/library/<titre>/<chapitre>/NNN.png`,
 `data/projects/<nom>/`, `data/models/` et `data/cache/`. N'écris rien dans `~/.cache`.
+Si la CLI est installée (Homebrew), ces dossiers sont dans `~/Library/Application Support/manga-anim/` :
+`manga doctor` affiche l'emplacement réel.
 `manga uninstall --yes` supprime tout, mais seulement si l'utilisateur le demande explicitement.
 `manga --help` et `manga <commande> --help` font foi pour les options.
 

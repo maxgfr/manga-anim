@@ -1,17 +1,42 @@
-//! Emplacements sur disque. Tout vit dans le dossier de l'app : code, venv Python,
-//! données, modèles et caches. Supprimer ce dossier supprime tout.
+//! Emplacements sur disque.
+//!
+//! Lancé depuis un clone du dépôt, tout vit dans ce dossier : code, venv Python, données,
+//! modèles et caches. Installé (Homebrew ou autre préfixe : `bin/manga` à côté de
+//! `share/manga-anim/{workers,skills}`), le code reste dans le préfixe et tout le reste va
+//! dans un seul dossier de données. Dans les deux cas, supprimer ces dossiers supprime tout.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-/// Dossier du dépôt qui a compilé le binaire.
-pub fn app_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+/// `<préfixe>/share/manga-anim` si le binaire est installé, `None` s'il tourne depuis le dépôt.
+fn installed_share() -> Option<&'static Path> {
+    static SHARE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    SHARE
+        .get_or_init(|| {
+            let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+            let share = exe.parent()?.parent()?.join("share/manga-anim");
+            share.join("workers/pyproject.toml").exists().then_some(share)
+        })
+        .as_deref()
 }
 
-/// Racine des données : `library/`, `projects/`, `models/`, `cache/`.
+pub fn is_installed() -> bool {
+    installed_share().is_some()
+}
+
+/// Dossier du code : le préfixe d'installation, sinon le dépôt qui a compilé le binaire.
+pub fn app_dir() -> PathBuf {
+    installed_share().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+}
+
+/// Racine des données : `library/`, `projects/`, `models/`, `cache/` (et `venv/` si installé).
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_HOME") {
         return PathBuf::from(dir);
+    }
+    if is_installed() {
+        let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        return home.join("Library/Application Support/manga-anim");
     }
     app_dir().join("data")
 }
@@ -29,12 +54,18 @@ pub fn projects_dir() -> PathBuf {
     data_dir().join("projects")
 }
 
-/// Projet uv des workers ML. Par défaut celui du dépôt qui a compilé le binaire.
+/// Projet uv des workers ML.
 pub fn workers_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_WORKERS") {
         return PathBuf::from(dir);
     }
     app_dir().join("workers")
+}
+
+/// Venv Python des workers : dans le dépôt, ou dans les données si le code est installé
+/// (le préfixe d'installation est remplacé à chaque mise à jour).
+pub fn venv_dir() -> PathBuf {
+    if is_installed() { data_dir().join("venv") } else { workers_dir().join(".venv") }
 }
 
 /// Police utilisée pour les sous-titres. Arial Unicode couvre latin, kana, kanji et hangul.

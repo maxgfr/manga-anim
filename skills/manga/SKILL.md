@@ -41,8 +41,11 @@ Si la CLI est installée (Homebrew), ces dossiers sont dans `~/Library/Applicati
    `motion` (static, zoom_in, zoom_out, pan_left, pan_right, pan_up, pan_down), `skip: true`,
    `extra` (secondes en plus ou en moins), `mode` (motion ou animate), `prompt`.
    Ne modifie pas `duration` à la main : utilise `extra`.
-7. **Rendu** : `manga render <nom> [--out fichier.mp4] [--speaker] [--no-captions] [--shots 3,7]`.
-   `--shots` pour prévisualiser quelques plans. Le cache par plan rend les re-rendus rapides.
+7. **Rendu** : `manga render <nom> [--out fichier.mp4] [--style scroll|panels] [--speaker] [--captions|--no-captions] [--shots 3,7]`.
+   `scroll` (défaut) : la page en pleine largeur défile de case en case pendant la lecture, sans
+   sous-titres (`--captions` pour les ajouter). `panels` : une case à la fois sur fond flou, avec
+   `motion` et sous-titres. `--page-intro 0` sur `manga timeline` pour un défilement sans pause
+   en haut de page. `--shots` pour prévisualiser quelques plans. Le cache par plan rend les re-rendus rapides.
 
 Raccourci : `manga run <nom>` enchaîne analyse, voix, timeline et rendu.
 

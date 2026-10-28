@@ -114,6 +114,9 @@ enum Cmd {
         /// Ne rend que ces plans (identifiants ou numéros), pour prévisualiser.
         #[arg(long, value_delimiter = ',')]
         shots: Vec<String>,
+        /// scroll : la page défile de case en case ; panels : une case à la fois sur fond flou.
+        #[arg(long, value_enum, default_value = "scroll")]
+        style: render::Style,
         /// Traite les plans « animate » comme des plans motion (rapide).
         #[arg(long)]
         no_animate: bool,
@@ -123,6 +126,9 @@ enum Cmd {
         /// Pas de sous-titres (le texte des bulles reste visible dans l'image).
         #[arg(long)]
         no_captions: bool,
+        /// Sous-titres aussi en style scroll, où la page en pleine largeur les rend superflus.
+        #[arg(long, conflicts_with = "no_captions")]
+        captions: bool,
         #[arg(long, default_value_t = 4)]
         jobs: usize,
         /// Images par clip animé (4n+1, 24 i/s).
@@ -453,9 +459,10 @@ fn main() -> Result<()> {
             }
             tl.save(&p)?;
         }
-        Cmd::Render { project, out, shots, no_animate, speaker, no_captions, jobs, frames, steps, max_area } => {
+        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area } => {
             let settings = animate::Settings { frames, steps, max_area, ..Default::default() };
-            let opts = render::RenderOptions { out: PathBuf::new(), shots, show_speaker: speaker, captions: !no_captions, jobs };
+            let captions = captions || (!no_captions && style == render::Style::Panels);
+            let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs };
             render(&Project::open(&project)?, out, opts, no_animate, settings)?;
         }
         Cmd::Run { project, detector, no_animate } => {
@@ -463,7 +470,7 @@ fn main() -> Result<()> {
             analyze(&p, &detector, false)?;
             voice::run(&p, false)?;
             timeline::run(&p, &timeline::Options::default(), false)?;
-            let opts = render::RenderOptions { out: PathBuf::new(), shots: Vec::new(), show_speaker: false, captions: true, jobs: 4 };
+            let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4 };
             render(&p, None, opts, no_animate, animate::Settings::default())?;
         }
         Cmd::Uninstall { yes } => uninstall::run(yes)?,

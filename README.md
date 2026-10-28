@@ -3,7 +3,8 @@
 CLI pour transformer des planches de manga en vidéo, en local sur Mac (Apple Silicon).
 
 - **Vidéo de lecture** : détection des cases et des bulles, OCR multilingue, voix de synthèse par
-  personnage, sous-titres, mouvements de caméra case par case.
+  personnage. Par défaut la page en pleine largeur défile de case en case au fil de la lecture
+  (`--style panels` : une case à la fois, zoom ou panoramique, sous-titres).
 - **Animation** : les cases choisies sont animées par un modèle image→vidéo open source
   (Wan2.2 TI2V-5B via MLX).
 - **Liseuse web** locale pour vérifier et corriger l'OCR, l'ordre de lecture et les locuteurs.

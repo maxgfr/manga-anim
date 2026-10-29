@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::animate;
+use crate::{animate, story};
 use crate::home::{app_dir, cache_dir, caption_font, data_dir, venv_dir, workers_dir};
 
 fn tool(name: &str, args: &[&str]) -> Option<String> {
@@ -66,6 +66,8 @@ pub fn run() {
     let wan = animate::model_dir();
     let wan_ok = wan.join("config.json").exists();
     line(wan_ok, "Wan2.2 (animation)", if wan_ok { "installé" } else { "optionnel : manga models install wan (~34 Go)" });
+    let flux = story::model_dir().exists();
+    line(flux, "FLUX.2 klein (dessin)", if flux { "installé" } else { "optionnel, pour manga story : manga models install flux2 (~15 Go, ~5 Go gardés)" });
 
     println!();
     let ram = sysctl("hw.memsize").map(|b| b as f64 / 1024f64.powi(3));

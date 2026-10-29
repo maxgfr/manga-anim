@@ -7,6 +7,9 @@ CLI pour transformer des planches de manga en vidéo, en local sur Mac (Apple Si
   (`--style panels` : une case à la fois, zoom ou panoramique, sous-titres).
 - **Animation** : les cases choisies sont animées par un modèle image→vidéo open source
   (Wan2.2 TI2V-5B via MLX).
+- **Spin-off** : un nouveau manga avec les persos d'un projet. Claude (skill) écrit le scénario,
+  FLUX.2 [klein] 4B dessine les cases avec les persos en référence, la CLI compose les planches et
+  les bulles. Le résultat se lit, se double et se rend comme les autres projets.
 - **Liseuse web** locale pour vérifier et corriger l'OCR, l'ordre de lecture et les locuteurs.
 - **Skill Claude Code** (`skills/manga`) pour piloter toute la chaîne en langage naturel.
 
@@ -65,6 +68,22 @@ manga render vs-s3           # → data/projects/vs-s3/out/vs-s3.mp4
 Pour animer quelques cases : `manga animate vs-s3 12 27 --prompt "snow falling, cape flapping"`
 puis `manga render vs-s3`.
 
+### Spin-off
+
+```sh
+manga characters vs-s3                 # persos détectés par Magi → characters/found/
+cp …/characters/found/perso-0-2/01.png …/characters/Thorfinn.png   # nommer (la skill le fait)
+manga story new vs-spin --from vs-s3   # story.json d'exemple, persos copiés dans refs/
+# écrire story.json : pages, cases (prompt, persos, seed), bulles, narration
+manga story build vs-spin --no-draw    # mise en page seule, cases grises
+manga models install flux2             # une fois : ~15 Go téléchargés, ~5 Go gardés (4 bits)
+manga story build vs-spin              # dessine les cases qui ont changé, compose les planches
+manga voice vs-spin && manga timeline vs-spin && manga render vs-spin
+```
+
+Le dessin a son propre projet uv (`workers/draw`, venv `workers/draw/.venv`) : mflux demande
+transformers 5, Magi transformers 4. `uv` le crée au premier `manga story build`.
+
 ## Sources
 
 - **Fichiers locaux** : CBZ, ZIP, EPUB (ordre du spine), PDF, CBR/7z, dossiers d'images.
@@ -80,6 +99,7 @@ sous copyright sont pour un usage personnel.
 |---|---|
 | `src/` (Rust) | CLI, bibliothèque, sources, projet, timeline, rendu ffmpeg, sous-titres PNG, liseuse axum |
 | `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX), `animate` (mlx-video Wan2.2), `models` |
+| `workers/draw/mangadraw` (Python, uv, venv à part) | `draw` (FLUX.2 [klein] via mflux), `models` |
 
 Rust et Python échangent des fichiers JSON (`projects/<nom>/work/*_job.json` → `analysis/*.json`,
 `audio/`, `clips/`). Chaque étape est mise en cache et reprenable.
@@ -98,3 +118,4 @@ Le code de manga-anim est sous licence [MIT](LICENSE). Les modèles ont leur pro
 - [Magi v2](https://huggingface.co/ragavsachdeva/magiv2) : licence recherche, usage personnel uniquement.
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) : Apache 2.0.
 - [Wan2.2](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B) : Apache 2.0, via [mlx-video](https://github.com/Blaizzy/mlx-video) (MIT).
+- [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) : Apache 2.0, via [mflux](https://github.com/filipstrand/mflux) (MIT).

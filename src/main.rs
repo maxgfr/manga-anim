@@ -1,10 +1,12 @@
 //! `manga` : lire et animer des mangas en local.
 //!
 //! Chaîne : import/source → project new → analyze → (read) → voice → timeline → render.
+//! Spin-off : characters → story new → story build → voice → timeline → render.
 
 mod analysis;
 mod animate;
 mod captions;
+mod characters;
 mod doctor;
 mod home;
 mod library;
@@ -12,6 +14,7 @@ mod project;
 mod reader;
 mod render;
 mod sources;
+mod story;
 mod timeline;
 mod uninstall;
 mod voice;
@@ -148,6 +151,18 @@ enum Cmd {
         #[arg(long)]
         no_animate: bool,
     },
+    /// Recadre les persos détectés par Magi dans characters/found/, pour les nommer et les réutiliser.
+    Characters {
+        project: String,
+        /// Crops gardés par perso (les plus grandes apparitions).
+        #[arg(long, default_value_t = 8)]
+        per_character: usize,
+    },
+    /// Spin-off : un nouveau manga dessiné avec les persos d'un projet (story.json).
+    Story {
+        #[command(subcommand)]
+        cmd: StoryCmd,
+    },
     /// Installe les modèles lourds.
     Models {
         #[command(subcommand)]
@@ -222,8 +237,36 @@ enum ProjectCmd {
 }
 
 #[derive(Subcommand)]
+enum StoryCmd {
+    /// Crée le projet avec un story.json d'exemple et les persos de --from copiés dans refs/.
+    New {
+        name: String,
+        /// Projet source, dont la banque characters/ (ou characters/found/) fournit les persos.
+        #[arg(long)]
+        from: String,
+        /// Langue des dialogues (défaut : celle du projet source).
+        #[arg(long)]
+        lang: Option<String>,
+        #[arg(long, value_enum)]
+        direction: Option<Direction>,
+    },
+    /// Dessine les cases qui ont changé, compose les planches et leur analyse.
+    Build {
+        name: String,
+        /// Ne dessine que ces pages (1,3) ; les autres restent en l'état.
+        #[arg(long, value_delimiter = ',')]
+        pages: Vec<usize>,
+        /// Compose sans dessiner : les cases pas encore dessinées restent grises.
+        #[arg(long)]
+        no_draw: bool,
+        #[arg(long, default_value_t = 4)]
+        steps: u32,
+    },
+}
+
+#[derive(Subcommand)]
 enum ModelsCmd {
-    /// Télécharge et convertit un modèle : wan (animation, ~34 Go).
+    /// Télécharge et convertit un modèle : wan (animation, ~34 Go) ou flux2 (dessin, ~15 Go).
     Install {
         model: String,
         /// Quantification du transformer : 4 (adapté à 16 Go) ou 8 (qualité, 24 Go et plus).
@@ -274,13 +317,8 @@ fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
         return Ok(());
     }
     // Banque de personnages : characters/<Nom>.png, pour nommer les locuteurs.
-    let mut character_bank = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(project.path("characters")) {
-        for p in entries.flatten().map(|e| e.path()).filter(|p| home::is_image(p)) {
-            let name = p.file_stem().unwrap().to_string_lossy().to_string();
-            character_bank.push(BankEntry { name, image: p.to_string_lossy().into() });
-        }
-    }
+    let character_bank: Vec<BankEntry> =
+        characters::bank(project).into_iter().map(|(name, p)| BankEntry { name, image: p.to_string_lossy().into() }).collect();
     println!("analyse de {} pages ({detector}, {} persos connus)", pages.len(), character_bank.len());
     let job = AnalyzeJob {
         lang: project.cfg.lang.clone(),
@@ -473,20 +511,52 @@ fn main() -> Result<()> {
             let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4 };
             render(&p, None, opts, no_animate, animate::Settings::default())?;
         }
+        Cmd::Characters { project, per_character } => {
+            let p = Project::open(&project)?;
+            let found = characters::run(&p, per_character)?;
+            for f in &found {
+                println!("{:<20} {:>4} apparitions  {}", f.label, f.appearances, f.crops.first().map(String::as_str).unwrap_or(""));
+            }
+            println!(
+                "{} persos → {}\nPour en nommer un : copie son meilleur crop en characters/<Nom>.png",
+                found.len(),
+                p.path("characters/found/index.json").display()
+            );
+        }
+        Cmd::Story { cmd } => match cmd {
+            StoryCmd::New { name, from, lang, direction } => {
+                let path = story::new(&name, &Project::open(&from)?, lang, direction)?;
+                println!("scénario : {}\nÉcris l'histoire puis : manga story build {}", path.display(), home::slugify(&name));
+            }
+            StoryCmd::Build { name, pages, no_draw, steps } => {
+                let (p, pending) = story::build(&name, &story::BuildOptions { pages, draw: !no_draw, steps })?;
+                println!("{} planches → {}", p.cfg.pages.len(), p.path("pages").display());
+                if pending > 0 {
+                    println!("{pending} cases pas encore dessinées (en gris)");
+                }
+                println!("Ensuite : manga voice {0} && manga timeline {0} && manga render {0}", p.cfg.name);
+            }
+        },
         Cmd::Uninstall { yes } => uninstall::run(yes)?,
         Cmd::Models { cmd } => match cmd {
             ModelsCmd::Install { model, bits } => {
-                if model != "wan" {
-                    bail!("modèle inconnu : {model} (disponible : wan)");
+                let job_path = home::data_dir().join("models/install_job.json");
+                match model.as_str() {
+                    "wan" => {
+                        let job = serde_json::json!({
+                            "model": "wan",
+                            "src_dir": home::data_dir().join("models/wan2.2-ti2v-5b-src"),
+                            "out_dir": animate::model_dir(),
+                            "bits": bits,
+                        });
+                        worker::run("models", &job, &job_path)?;
+                    }
+                    "flux2" => {
+                        let job = serde_json::json!({ "model": "flux2", "out_dir": story::model_dir(), "bits": bits });
+                        worker::run_in(worker::Env::Draw, "models", &job, &job_path)?;
+                    }
+                    _ => bail!("modèle inconnu : {model} (disponibles : wan, flux2)"),
                 }
-                let out = animate::model_dir();
-                let job = serde_json::json!({
-                    "model": "wan",
-                    "src_dir": home::data_dir().join("models/wan2.2-ti2v-5b-src"),
-                    "out_dir": out,
-                    "bits": bits,
-                });
-                worker::run("models", &job, &home::data_dir().join("models/install_job.json"))?;
             }
         },
     }

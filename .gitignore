@@ -1,5 +1,6 @@
 /target
 workers/.venv/
+workers/draw/.venv/
 __pycache__/
 *.pyc
 .impeccable/

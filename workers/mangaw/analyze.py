@@ -154,7 +154,9 @@ def analyze_magi(pages: list[dict], bank: list[dict], rtl: bool, ocr: Ocr) -> No
             panels = [list(map(float, p)) for p in res["panels"]]
             if not rtl:
                 panels = [panels[i] for i in rows_in_order(panels, rtl)]
-            speakers = speaker_names(res)
+            labels = character_labels(res, start // CHAPTER_BATCH)
+            speakers = speaker_names(res, labels)
+            characters = [{"bbox": list(map(float, b)), "name": n} for b, n in zip(res.get("characters") or [], labels)]
             texts = []
             for i, box in enumerate(res["texts"]):
                 box = list(map(float, box))
@@ -167,27 +169,36 @@ def analyze_magi(pages: list[dict], bank: list[dict], rtl: bool, ocr: Ocr) -> No
             # Magi ordonne déjà les bulles pour le manga (rtl) ; en ltr on réordonne.
             if not rtl:
                 texts = order_texts(texts, panels, rtl)
-            write_page(job, img, panels, texts, ocr, "magiv2")
+            write_page(job, img, panels, texts, ocr, "magiv2", characters)
 
 
-def speaker_names(res: dict) -> dict[int, str]:
-    """Bulle → nom du perso. Sans banque de persos, on nomme par cluster (perso-3)."""
+def character_labels(res: dict, batch: int) -> list[str | None]:
+    """Nom de chaque perso détecté. Sans banque, son cluster : perso-<passe>.<cluster>, car Magi
+    ne regroupe les persos qu'à l'intérieur d'une passe de CHAPTER_BATCH pages."""
     names = res.get("character_names") or []
     clusters = res.get("character_cluster_labels") or []
+    out = []
+    for i in range(max(len(res.get("characters") or []), len(clusters), len(names))):
+        name = names[i] if i < len(names) else None
+        if not name or name.lower() in ("other", "unsure"):
+            name = f"perso-{batch}.{clusters[i]}" if i < len(clusters) else None
+        out.append(name)
+    return out
+
+
+def speaker_names(res: dict, labels: list[str | None]) -> dict[int, str]:
+    """Bulle → nom du perso qui parle."""
     out = {}
     for text_idx, char_idx in res.get("text_character_associations") or []:
-        name = names[char_idx] if char_idx < len(names) else None
-        if not name or name.lower() in ("other", "unsure"):
-            name = f"perso-{clusters[char_idx]}" if char_idx < len(clusters) else None
-        if name:
-            out[int(text_idx)] = name
+        if char_idx < len(labels) and labels[char_idx]:
+            out[int(text_idx)] = labels[char_idx]
     return out
 
 
 # --- Sortie --------------------------------------------------------------------------
 
 
-def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr: Ocr, detector: str) -> None:
+def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr: Ocr, detector: str, characters: list[dict] | None = None) -> None:
     w, h = img.size
     out_texts = []
     for i, t in enumerate(texts):
@@ -211,6 +222,7 @@ def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr
         "height": h,
         "panels": [{"bbox": p} for p in panels],
         "texts": out_texts,
+        "characters": characters or [],
         "detector": detector,
     }
     Path(job["out"]).parent.mkdir(parents=True, exist_ok=True)

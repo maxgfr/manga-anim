@@ -68,6 +68,11 @@ pub fn venv_dir() -> PathBuf {
     if is_installed() { data_dir().join("venv") } else { workers_dir().join(".venv") }
 }
 
+/// Venv du worker de dessin, à part : mflux veut transformers 5, Magi transformers 4.
+pub fn draw_venv_dir() -> PathBuf {
+    if is_installed() { data_dir().join("venv-draw") } else { workers_dir().join("draw/.venv") }
+}
+
 /// Police utilisée pour les sous-titres. Arial Unicode couvre latin, kana, kanji et hangul.
 pub fn caption_font() -> PathBuf {
     if let Ok(font) = std::env::var("MANGA_FONT") {

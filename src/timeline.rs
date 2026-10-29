@@ -276,6 +276,7 @@ mod tests {
                 text("0001_t2", Some(0), [500.0, 110.0, 600.0, 200.0], false),
                 text("0001_t3", None, [420.0, 900.0, 500.0, 1000.0], true),
             ],
+            characters: Vec::new(),
             detector: "test".into(),
         }
     }

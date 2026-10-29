@@ -61,7 +61,7 @@ fn remove_data(path: &Path) -> Result<()> {
         return Ok(());
     }
     // Garde-fou : le dossier ne doit contenir que ce que l'app y crée.
-    const OURS: [&str; 6] = ["library", "projects", "models", "cache", "venv", ".DS_Store"];
+    const OURS: [&str; 7] = ["library", "projects", "models", "cache", "venv", "venv-draw", ".DS_Store"];
     for entry in fs::read_dir(path)? {
         let name = entry?.file_name();
         anyhow::ensure!(OURS.contains(&name.to_string_lossy().as_ref()), "{} contient {:?}, qui n'est pas à manga-anim : rien supprimé", path.display(), name);

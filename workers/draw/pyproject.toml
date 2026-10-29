@@ -1,0 +1,14 @@
+[project]
+name = "mangadraw"
+license = "MIT"
+version = "0.1.0"
+description = "Worker de dessin de manga-anim (FLUX.2 klein via mflux), à part : mflux veut transformers 5, Magi transformers 4"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mflux>=0.24,<0.25",
+    "pillow",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

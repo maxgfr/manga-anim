@@ -18,8 +18,18 @@ pub struct PageAnalysis {
     pub panels: Vec<Panel>,
     /// Bulles et cartouches, dans l'ordre de lecture.
     pub texts: Vec<TextBox>,
+    /// Personnages détectés (Magi), pour `manga cast`. Absent des anciennes analyses.
+    #[serde(default)]
+    pub characters: Vec<CharacterBox>,
     #[serde(default)]
     pub detector: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterBox {
+    pub bbox: BBox,
+    /// Nom de la banque `characters/`, sinon cluster Magi : `perso-0.3` (passe 0, cluster 3).
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

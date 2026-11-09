@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>manga-anim: turn manga pages into voiced video</title>
+<meta name="description" content="A local command-line tool for Apple Silicon that finds panels and speech bubbles, reads the text, voices each character and cuts it all into a video.">
+<style>
+@font-face { font-family: "Dela Gothic One"; src: url(assets/dela-gothic-one.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: "Zen Kaku"; font-weight: 400; src: url(assets/zen-kaku-400.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: "Zen Kaku"; font-weight: 700; src: url(assets/zen-kaku-700.woff2) format("woff2"); font-display: swap; }
+
+:root {
+  --night: #15173a;
+  --night-2: #1f2250;
+  --lantern: #f5b83d;
+  --paper: #f7f7fc;
+  --mist: #d9dcf2;
+  --robot: #4fd3e3;
+  --mina: #ff7f97;
+  --gutter: clamp(10px, 1.2vw, 18px);
+}
+* { box-sizing: border-box; }
+html { background: var(--night); scrollbar-color: var(--lantern) var(--night); -webkit-text-size-adjust: 100%; }
+body { margin: 0; color: var(--mist); font: 400 clamp(1rem, .95rem + .25vw, 1.15rem)/1.6 "Zen Kaku", system-ui, sans-serif; }
+::selection { background: var(--lantern); color: var(--night); }
+:focus-visible { outline: 3px solid var(--lantern); outline-offset: 3px; }
+a { color: var(--lantern); text-underline-offset: .2em; }
+h1, h2 { font-family: "Dela Gothic One", sans-serif; font-weight: 400; line-height: 1.08; text-wrap: balance; margin: 0; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: var(--gutter); }
+
+/* The first screen is laid out as a manga page: panels and gutters. */
+.page { display: grid; grid-template-columns: minmax(0, 1.54fr) minmax(0, 1fr); grid-template-rows: 1fr auto; gap: var(--gutter); }
+.frame { border: 4px solid var(--paper); background: var(--night-2); }
+.title { grid-column: 1; background: var(--lantern); border-color: var(--lantern); color: var(--night); padding: clamp(18px, 1.8vw, 28px) clamp(20px, 2.2vw, 34px); display: flex; flex-direction: column; justify-content: center; gap: clamp(10px, .9vw, 14px); }
+.title h1 { font-size: clamp(2rem, 3.3vw, 3.4rem); letter-spacing: -.02em; }
+.title p { margin: 0; max-width: 72ch; font-weight: 700; line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+.btn { font: 700 1rem/1 "Zen Kaku", sans-serif; display: inline-flex; align-items: center; gap: 10px; padding: 14px 20px; border: 3px solid var(--night); border-radius: 999px; background: var(--night); color: var(--paper); text-decoration: none; cursor: pointer; transition: background .15s, color .15s; }
+.btn.ghost { background: transparent; color: var(--night); }
+.btn:hover { background: var(--paper); color: var(--night); }
+.btn:focus-visible { outline-color: var(--night); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+
+.screen { grid-column: 1; line-height: 0; }
+.screen video { width: 100%; aspect-ratio: 16 / 9; display: block; background: #000; }
+
+.source { grid-column: 2; grid-row: 1 / span 2; position: relative; line-height: 0; background: var(--paper); width: 100%; aspect-ratio: 12 / 17; box-sizing: content-box; width: calc(100% - 8px); align-self: start; }
+.source img, .source svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.source .spot { transition: x .55s cubic-bezier(.16,1,.3,1), y .55s cubic-bezier(.16,1,.3,1), width .55s cubic-bezier(.16,1,.3,1), height .55s cubic-bezier(.16,1,.3,1); }
+.box { fill: transparent; stroke: var(--paper); stroke-width: 3; stroke-dasharray: 10 8; opacity: .75; }
+.box.on { stroke-dasharray: none; stroke-width: 9; opacity: 1; }
+
+/* The read-along strip runs under the page like a caption track. */
+.track { list-style: none; margin: var(--gutter) 0 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; background: var(--paper); border: 4px solid var(--paper); }
+.track button { width: 100%; height: 100%; text-align: left; border: 0; padding: 14px 16px; background: var(--night); color: var(--mist); font: 400 .98rem/1.35 "Zen Kaku", sans-serif; cursor: pointer; transition: background .2s, color .2s; }
+.track b { display: block; font-size: .92rem; margin-bottom: 4px; color: var(--who, var(--lantern)); }
+.track button:hover { background: var(--night-2); }
+.track button.on { background: var(--who, var(--lantern)); color: var(--night); }
+.track button.on b { color: var(--night); }
+.track button:focus-visible { outline-offset: -4px; }
+
+section { padding: clamp(56px, 8vw, 120px) 0 0; }
+h2 { color: var(--paper); font-size: clamp(1.7rem, 3.2vw, 3.1rem); letter-spacing: -.02em; margin-bottom: clamp(16px, 2vw, 26px); }
+.lede { max-width: 62ch; margin: 0 0 clamp(22px, 3vw, 36px); }
+.split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--gutter); align-items: stretch; }
+pre { margin: 0; padding: clamp(18px, 2vw, 28px); background: var(--night-2); border: 4px solid var(--paper); overflow-x: auto; font-size: .92rem; line-height: 1.75; color: var(--paper); tab-size: 2; }
+pre .c { color: #b3b8e0; }
+figure { margin: 0; display: flex; flex-direction: column; }
+figure pre { flex: 1; }
+figcaption { padding-top: 10px; font-size: .95rem; }
+
+.styles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: clamp(20px, 3vw, 48px); align-items: center; }
+.styles video { width: 100%; aspect-ratio: 16 / 9; display: block; border: 4px solid var(--paper); background: #000; }
+.styles p { margin: 0 0 1em; max-width: 52ch; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 14px 18px 14px 0; border-bottom: 2px solid var(--night-2); vertical-align: top; }
+th { color: var(--paper); font-weight: 700; }
+td code, p code, li code { color: var(--lantern); font-size: .92em; }
+
+.close { margin-top: clamp(56px, 8vw, 120px); background: var(--lantern); color: var(--night); padding: clamp(28px, 4vw, 60px); display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: clamp(20px, 3vw, 48px); align-items: end; }
+.close h2 { color: var(--night); margin: 0 0 18px; }
+.close p { margin: 0; font-size: .98rem; max-width: 60ch; }
+.close p a { color: var(--night); font-weight: 700; }
+
+@media (max-width: 900px) {
+  .page { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .title, .screen, .source { grid-column: 1; grid-row: auto; }
+  .source { max-width: 520px; justify-self: center; }
+  .track { grid-template-columns: minmax(0, 1fr); }
+  .split, .styles, .close { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .source .spot { transition: none; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="page" id="stage">
+    <div class="frame title">
+      <h1>Manga pages in. Voiced video&nbsp;out.</h1>
+      <p>A command-line tool that finds the panels and speech bubbles, reads the text, voices the characters and cuts a video, locally on Apple Silicon.</p>
+      <div class="actions">
+        <button class="btn" id="sound" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h4l5 4v-13l-5 4H4Z"/><path d="M17 9a4.2 4.2 0 0 1 0 6"/></svg>
+          <span>Play with sound</span>
+        </button>
+        <a class="btn ghost" href="https://github.com/maxgfr/manga-anim">View the code on GitHub</a>
+      </div>
+    </div>
+    <div class="frame screen">
+      <video id="film" src="assets/midnight-scroll.mp4" poster="assets/poster-scroll.jpg" muted loop playsinline controls preload="auto" aria-label="Demo video: the comic Midnight Ramen, narrated and voiced by manga-anim"></video>
+    </div>
+    <div class="frame source" aria-hidden="true">
+      <img id="sheet" alt="" src="assets/0001.jpg">
+      <svg id="overlay" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+  <ol class="track" id="track" aria-label="Lines detected on the page. Choose one to jump to it."></ol>
+
+  <section>
+    <h2>Seven commands from archive to video</h2>
+    <p class="lede">Every step is cached and can be resumed. The analysis and the edit are plain JSON, so you can correct a line or retime a shot and render again.</p>
+    <div class="split">
+      <pre tabindex="0"><span class="c"># CBZ, EPUB, PDF, CBR or a folder of images</span>
+manga import ~/Comics/midnight-ramen/ --title "Midnight Ramen"
+manga project new midnight --title "Midnight Ramen" \
+  --from ch1:p1 --to ch1:p2 --lang en
+manga analyze midnight   <span class="c"># panels, bubbles, OCR, speakers</span>
+manga read midnight      <span class="c"># web reader to check and fix it</span>
+manga voice midnight     <span class="c"># one voice per character</span>
+manga timeline midnight  <span class="c"># the edit, as timeline.json</span>
+manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
+      <figure>
+        <pre tabindex="0">{
+  "id": "0002_t1",
+  "bbox": [193, 124, 437, 209],
+  "panel": 1,
+  "text": "IT COULD BE A TRAP.",
+  "speaker": "Mina",
+  "essential": true
+}</pre>
+        <figcaption>The bubble “It could be a trap” in the demo’s <code>analysis/0002.json</code>.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Scroll the page, or go panel by panel</h2>
+      <p>The video above uses the default style: the full-width page glides from panel to panel as it is read. With <code>--style panels</code>, each panel gets the frame to itself, with a zoom or a pan and subtitles.</p>
+      <p>Same analysis, same voices: only the render changes.</p>
+    </div>
+    <video src="assets/midnight-panels.mp4" poster="assets/poster-panels.jpg" controls playsinline preload="none" aria-label="The same demo rendered one panel at a time, with subtitles"></video>
+  </section>
+
+  <section>
+    <h2>What runs on your Mac</h2>
+    <p class="lede">Needs macOS on Apple Silicon, with <code>ffmpeg</code>, <code>uv</code> and Rust to build. Models download the first time they are used, and each one keeps its own license.</p>
+    <table>
+      <thead><tr><th scope="col">Job</th><th scope="col">Model</th><th scope="col">Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Panels, bubbles, speakers</td><td>Magi v2, or Apple Vision with OpenCV</td><td>Magi is under a research license, for personal use only. Vision needs no download.</td></tr>
+        <tr><td>Voices</td><td>Kokoro-82M</td><td>About 350 MB. English, French, Japanese, Chinese, Spanish, Italian, Portuguese and Hindi.</td></tr>
+        <tr><td>Animate chosen panels (optional)</td><td>Wan2.2 TI2V-5B</td><td>About 34 GB to download, several minutes per two-second clip on 16 GB of memory.</td></tr>
+        <tr><td>Draw a spin-off (optional)</td><td>FLUX.2 [klein] 4B</td><td>About 15 GB to download, 5 GB kept.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer class="close">
+    <div>
+      <h2>Bring your own pages</h2>
+      <a class="btn" href="https://github.com/maxgfr/manga-anim">Get manga-anim on GitHub</a>
+    </div>
+    <p><em>Midnight Ramen</em> is an original two-page comic made for this demo. Its voices, framing and timing come straight from the tool; speakers were reviewed by hand. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
+  </footer>
+</main>
+
+<script type="application/json" id="demo">{"pages":{"0001.png":{"src":"assets/0001.jpg","w":1200,"h":1700,"panels":[[50.0,50.0,1151.0,701.0],[620.0,740.0,1151.0,1651.0],[50.0,740.0,581.0,1651.0]],"texts":[{"id":"0001_t0","bbox":[120.87627765934832,114.87126564481484,888.9659383038796,159.07268547513723],"speaker":null},{"id":"0001_t1","bbox":[775.3086417591492,842.3360886757271,992.5925925648133,931.5406967220837],"speaker":"Robot"},{"id":"0001_t2","bbox":[83.7109964325528,854.1525720423547,538.5099161102871,942.8976233804352],"speaker":"Mina"}]},"0002.png":{"src":"assets/0002.jpg","w":1200,"h":1700,"panels":[[620.0,50.0,1151.0,761.0],[50.0,50.0,581.0,761.0],[50.0,800.0,1151.0,1651.0]],"texts":[{"id":"0002_t0","bbox":[787.654321985265,121.07558045372974,980.2469123172963,212.49999904268847],"speaker":"Robot"},{"id":"0002_t1","bbox":[192.59259332227302,123.54651254039575,437.0370360712965,208.8701836021701],"speaker":"Mina"},{"id":"0002_t2","bbox":[325.7817992675118,878.882329606299,871.7825316893868,978.4883718617418],"speaker":"Mina"}]}},"shots":[{"page":"0001.png","bbox":[0.0,0.0,1200.0,1700.0],"start":0.0,"duration":1.5,"lines":[]},{"page":"0001.png","bbox":[50.0,50.0,1151.0,701.0],"start":1.5,"duration":3.6,"lines":[{"id":"0001_t0","text":"MIDNIGHT. THE CITY FINALLY SLEEPS.","speaker":null,"start":0.4,"duration":2.6}]},{"page":"0001.png","bbox":[620.0,740.0,1151.0,1651.0],"start":5.1,"duration":2.7,"lines":[{"id":"0001_t1","text":"STILL HUNGRY?","speaker":"Robot","start":0.4,"duration":1.7}]},{"page":"0001.png","bbox":[50.0,740.0,581.0,1651.0],"start":7.8,"duration":3.65,"lines":[{"id":"0001_t2","text":"ALWAYS. ESPECIALLY AT NIGHT.","speaker":"Mina","start":0.4,"duration":2.65}]},{"page":"0002.png","bbox":[0.0,0.0,1200.0,1700.0],"start":11.45,"duration":1.5,"lines":[]},{"page":"0002.png","bbox":[620.0,50.0,1151.0,761.0],"start":12.95,"duration":2.6000000000000005,"lines":[{"id":"0002_t0","text":"LOOK! A LIGHT!","speaker":"Robot","start":0.4,"duration":1.6}]},{"page":"0002.png","bbox":[50.0,50.0,581.0,761.0],"start":15.55,"duration":2.75,"lines":[{"id":"0002_t1","text":"IT COULD BE A TRAP.","speaker":"Mina","start":0.4,"duration":1.75}]},{"page":"0002.png","bbox":[50.0,800.0,1151.0,1651.0],"start":18.3,"duration":3.675,"lines":[{"id":"0002_t2","text":"A TRAP WITH NOODLES? I'M IN.","speaker":"Mina","start":0.4,"duration":2.675}]}]}</script>
+<script>
+(() => {
+  const demo = JSON.parse(document.getElementById("demo").textContent);
+  const film = document.getElementById("film");
+  const sheet = document.getElementById("sheet");
+  const overlay = document.getElementById("overlay");
+  const track = document.getElementById("track");
+  const sound = document.getElementById("sound");
+  const NS = "http://www.w3.org/2000/svg";
+  const WHO = { Robot: "var(--robot)", Mina: "var(--mina)" };
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const el = (name, attrs, parent) => {
+    const node = document.createElementNS(NS, name);
+    for (const k in attrs) node.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(node);
+    return node;
+  };
+
+  // Preload both pages so the swap never flashes.
+  Object.values(demo.pages).forEach(p => { new Image().src = p.src; });
+
+  const lines = demo.shots.flatMap(s => s.lines.map(l => ({ ...l, at: s.start + l.start })));
+  const buttons = new Map();
+  lines.forEach(l => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.style.setProperty("--who", WHO[l.speaker] || "var(--lantern)");
+    const name = document.createElement("b");
+    name.textContent = l.speaker || "Narrator";
+    b.append(name, l.text);
+    b.addEventListener("click", () => {
+      film.currentTime = l.at;
+      film.play().catch(() => {});
+    });
+    li.appendChild(b);
+    track.appendChild(li);
+    buttons.set(l.id, b);
+  });
+
+  let page = null, spot, shade, boxes = new Map(), activeLine = null, activeBox = null;
+
+  function drawPage(key) {
+    page = key;
+    const p = demo.pages[key];
+    sheet.src = p.src;
+    overlay.setAttribute("viewBox", `0 0 ${p.w} ${p.h}`);
+    overlay.textContent = "";
+    boxes = new Map();
+    activeBox = null;
+    const mask = el("mask", { id: "spotlight" }, el("defs", {}, overlay));
+    el("rect", { width: p.w, height: p.h, fill: "#fff" }, mask);
+    spot = el("rect", { class: "spot", x: 0, y: 0, width: p.w, height: p.h, fill: "#000" }, mask);
+    shade = el("rect", { width: p.w, height: p.h, fill: "#15173a", "fill-opacity": ".72", mask: "url(#spotlight)" }, overlay);
+    p.texts.forEach(t => {
+      const [x1, y1, x2, y2] = t.bbox;
+      const color = t.speaker === "Robot" ? "#4fd3e3" : t.speaker === "Mina" ? "#ff7f97" : "#f5b83d";
+      const r = el("rect", { class: "box", x: x1 - 8, y: y1 - 8, width: x2 - x1 + 16, height: y2 - y1 + 16, rx: 10, style: `stroke:${color}` }, overlay);
+      boxes.set(t.id, r);
+    });
+  }
+
+  function update() {
+    const t = film.currentTime;
+    const shot = demo.shots.find(s => t < s.start + s.duration) || demo.shots[demo.shots.length - 1];
+    if (shot.page !== page) drawPage(shot.page);
+    const [x1, y1, x2, y2] = shot.bbox;
+    spot.setAttribute("x", x1); spot.setAttribute("y", y1);
+    spot.setAttribute("width", x2 - x1); spot.setAttribute("height", y2 - y1);
+    const local = t - shot.start;
+    const line = shot.lines.find(l => local >= l.start && local < l.start + l.duration + .3);
+    const id = line ? line.id : null;
+    if (id !== activeLine) {
+      if (activeLine) buttons.get(activeLine)?.classList.remove("on");
+      if (activeBox) activeBox.classList.remove("on");
+      activeLine = id;
+      activeBox = id ? boxes.get(id) : null;
+      if (id) {
+        buttons.get(id)?.classList.add("on");
+        activeBox?.classList.add("on");
+      }
+    }
+  }
+
+  function loop() { update(); if (!film.paused) requestAnimationFrame(loop); }
+  film.addEventListener("play", loop);
+  film.addEventListener("seeked", update);
+  film.addEventListener("timeupdate", update);
+  update();
+  if (!calm) film.play().catch(() => {});
+
+  function label() {
+    const on = !film.muted && !film.paused;
+    sound.querySelector("span").textContent = on ? "Mute" : "Play with sound";
+    sound.setAttribute("aria-pressed", String(on));
+  }
+  sound.addEventListener("click", () => {
+    if (!film.muted && !film.paused) { film.muted = true; }
+    else { film.muted = false; film.currentTime = 0; film.play().catch(() => {}); }
+    label();
+  });
+  film.addEventListener("volumechange", label);
+  film.addEventListener("pause", label);
+  film.addEventListener("play", label);
+})();
+</script>
+</body>
+</html>

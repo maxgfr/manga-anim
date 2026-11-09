@@ -1,5 +1,5 @@
-//! Projet = une plage de pages d'un titre de la bibliothèque, plus tout ce qu'on en
-//! dérive (analyse, voix, timeline, vidéos) dans `projects/<nom>/`.
+//! Project = a page range from a library title, plus everything derived from it
+//! (analysis, voices, timeline, videos) in `projects/<name>/`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::home::{projects_dir, slugify};
 use crate::library;
 
-/// Sens de lecture : `rtl` pour le manga japonais, `ltr` pour comics et webtoons.
+/// Reading direction: `rtl` for Japanese manga, `ltr` for comics and webtoons.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
@@ -18,7 +18,7 @@ pub enum Direction {
     Ltr,
 }
 
-/// Position dans un titre : `ch101:p3`. `ch101` seul désigne tout le chapitre.
+/// Position in a title: `ch101:p3`. `ch101` alone means the whole chapter.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PagePos {
     pub chapter: f64,
@@ -38,12 +38,12 @@ impl std::str::FromStr for PagePos {
             .trim_start_matches("ch")
             .trim_start_matches('c')
             .parse::<f64>()
-            .with_context(|| format!("position invalide « {s} » (attendu ch101 ou ch101:p3)"))?;
+            .with_context(|| format!("invalid position \"{s}\" (expected ch101 or ch101:p3)"))?;
         let page = page
-            .map(|p| p.trim_start_matches('p').parse::<usize>().with_context(|| format!("page invalide dans « {s} »")))
+            .map(|p| p.trim_start_matches('p').parse::<usize>().with_context(|| format!("invalid page in \"{s}\"")))
             .transpose()?;
         if page == Some(0) {
-            bail!("les pages commencent à 1");
+            bail!("pages start at 1");
         }
         Ok(Self { chapter, page })
     }
@@ -51,7 +51,7 @@ impl std::str::FromStr for PagePos {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageRef {
-    /// Nom dans `pages/` : `0001.png`.
+    /// Name in `pages/`: `0001.png`.
     pub file: String,
     pub chapter: f64,
     pub page: usize,
@@ -61,7 +61,7 @@ pub struct PageRef {
 pub struct ProjectConfig {
     pub name: String,
     pub title: String,
-    /// Code langue ISO 639-1 du texte des planches (`fr`, `en`, `ja`…).
+    /// ISO 639-1 language code of the text on the pages (`fr`, `en`, `ja`…).
     pub lang: String,
     pub direction: Direction,
     pub from: String,
@@ -82,7 +82,7 @@ impl Project {
     pub fn open(name: &str) -> Result<Self> {
         let root = Self::dir(name);
         let text = fs::read_to_string(root.join("project.toml"))
-            .with_context(|| format!("projet introuvable : {} (manga project new …)", root.display()))?;
+            .with_context(|| format!("project not found: {} (manga project new …)", root.display()))?;
         Ok(Self { cfg: toml::from_str(&text)?, root })
     }
 
@@ -103,7 +103,7 @@ impl Project {
         self.root.join("analysis").join(format!("{}.json", stem(&page.file)))
     }
 
-    /// Crée le projet en copiant les pages de la plage `from..=to`.
+    /// Creates the project by copying the pages in the range `from..=to`.
     pub fn create(name: &str, title: &str, from: PagePos, to: PagePos, lang: &str, direction: Direction) -> Result<Self> {
         let title = slugify(title);
         let chapters = library::chapters(&title)?;
@@ -126,7 +126,7 @@ impl Project {
         }
         if selected.is_empty() {
             let have: Vec<String> = chapters.iter().map(|(n, _)| library::chapter_dir_name(*n)).collect();
-            bail!("aucune page dans cette plage. Chapitres disponibles pour {title} : {}", have.join(", "));
+            bail!("no pages in this range. Chapters available for {title}: {}", have.join(", "));
         }
 
         let root = Self::dir(name);

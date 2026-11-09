@@ -1,6 +1,6 @@
-"""Installation de FLUX.2 [klein] 4B : téléchargé (~15 Go), enregistré quantifié dans `out_dir`,
-puis le téléchargement est supprimé du cache Hugging Face.
-Job : {"model": "flux2", "out_dir": "...", "bits": 4}
+"""Installation of FLUX.2 [klein] 4B: downloaded (~15 GB), saved quantized to `out_dir`,
+then the download is deleted from the Hugging Face cache.
+Job: {"model": "flux2", "out_dir": "...", "bits": 4}
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def install_flux2(job: dict) -> None:
     for repo in scan_cache_dir().repos:
         if repo.repo_id == config.model_name:
             shutil.rmtree(repo.repo_path)
-    print(f"modèle prêt : {job['out_dir']}", file=sys.stderr)
+    print(f"model ready: {job['out_dir']}", file=sys.stderr)
 
 
 def main() -> None:
@@ -33,7 +33,7 @@ def main() -> None:
     if job["model"] == "flux2":
         install_flux2(job)
     else:
-        raise SystemExit(f"modèle inconnu : {job['model']}")
+        raise SystemExit(f"unknown model: {job['model']}")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Liseuse manga-anim</title>
+<title>manga-anim reader</title>
 <style>
   :root {
     --bg: #15161a; --panel: #1d1f25; --line: #2d3039; --text: #e8e6e1; --muted: #9a9ca5;
@@ -59,29 +59,29 @@
   <h1 id="title">…</h1>
   <span class="where" id="where"></span>
   <span class="spacer"></span>
-  <label class="toggle"><input type="checkbox" id="overlay" checked> Calques</label>
-  <button id="read" title="Lit les bulles de la page dans l'ordre (Espace)">▶ Lecture</button>
+  <label class="toggle"><input type="checkbox" id="overlay" checked> Overlays</label>
+  <button id="read" title="Plays the page's bubbles in order (Space)">▶ Play</button>
   <button id="prev">◀</button>
   <button id="next">▶</button>
 </header>
 <main>
   <div id="stage"><div id="page"><svg id="svg"></svg></div></div>
   <aside>
-    <div class="head"><span>Bulles dans l'ordre de lecture</span><span id="count"></span></div>
+    <div class="head"><span>Bubbles in reading order</span><span id="count"></span></div>
     <div id="list"></div>
-    <div class="foot"><span id="status">—</span><button class="primary" id="save" disabled>Enregistrer</button></div>
+    <div class="foot"><span id="status">—</span><button class="primary" id="save" disabled>Save</button></div>
   </aside>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
-// Créée en JS : pas de balise <img> sans source avant le chargement de la première page.
+// Created in JS: no source-less <img> tag before the first page has loaded.
 const pageImg = Object.assign(new Image(), { id: "img", alt: "" });
 $("page").prepend(pageImg);
 let project, index = 0, data = null, selected = null, dirty = false, reading = null;
 
 function setStatus(text, cls = "") { $("status").textContent = text; $("status").className = cls; }
-function markDirty() { dirty = true; $("save").disabled = false; setStatus("modifications non enregistrées", "dirty"); }
+function markDirty() { dirty = true; $("save").disabled = false; setStatus("unsaved changes", "dirty"); }
 
 async function load(i) {
   if (dirty) await save();
@@ -94,9 +94,9 @@ async function load(i) {
   pageImg.src = `/pages/${encodeURIComponent(page.file)}`;
   selected = null;
   const res = await fetch(`/api/analysis/${index}`);
-  if (!res.ok) { data = null; draw(); setStatus("pas encore analysée : manga analyze " + project.name, "error"); return; }
+  if (!res.ok) { data = null; draw(); setStatus("not analyzed yet: manga analyze " + project.name, "error"); return; }
   data = await res.json();
-  dirty = false; $("save").disabled = true; setStatus(`détecteur : ${data.detector || "?"}`);
+  dirty = false; $("save").disabled = true; setStatus(`detector: ${data.detector || "?"}`);
   draw();
   history.replaceState(null, "", `#${index + 1}`);
 }
@@ -104,7 +104,7 @@ async function load(i) {
 function draw() {
   const svg = $("svg"), list = $("list");
   svg.innerHTML = ""; list.innerHTML = "";
-  if (!data) { list.innerHTML = '<div class="empty">Aucune analyse pour cette page.</div>'; $("count").textContent = ""; return; }
+  if (!data) { list.innerHTML = '<div class="empty">No analysis for this page.</div>'; $("count").textContent = ""; return; }
   svg.setAttribute("viewBox", `0 0 ${data.width} ${data.height}`);
   const fontSize = Math.max(18, data.width / 45);
   data.panels.forEach((p, k) => {
@@ -125,7 +125,7 @@ function draw() {
     list.append(item(t, i));
   });
   const n = data.texts.filter((t) => t.essential).length;
-  $("count").textContent = `${n} lues · ${data.texts.length - n} ignorées`;
+  $("count").textContent = `${n} read · ${data.texts.length - n} ignored`;
 }
 
 function el(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
@@ -137,13 +137,13 @@ function item(t, i) {
   div.innerHTML = `
     <div class="row">
       <span class="n">${i + 1}</span>
-      <input type="text" placeholder="locuteur (vide = narrateur)">
-      <label title="Lue et sous-titrée"><input type="checkbox"> lue</label>
+      <input type="text" placeholder="speaker (empty = narrator)">
+      <label title="Read aloud and captioned"><input type="checkbox"> read</label>
     </div>
     <textarea rows="2"></textarea>
     <div class="row" style="margin:6px 0 0">
-      <button data-a="up" title="Plus tôt">▲</button><button data-a="down" title="Plus tard">▼</button>
-      <button data-a="play" title="Écouter">🔊</button>
+      <button data-a="up" title="Earlier">▲</button><button data-a="down" title="Later">▼</button>
+      <button data-a="play" title="Listen">🔊</button>
       <span style="flex:1"></span><span style="color:var(--muted);font-size:12px">${t.id}</span>
     </div>`;
   const [speaker, essential] = div.querySelectorAll("input");
@@ -176,8 +176,8 @@ function select(i) {
 async function save() {
   if (!data || !dirty) return;
   const res = await fetch(`/api/analysis/${index}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
-  if (res.ok) { dirty = false; $("save").disabled = true; setStatus("enregistré — relance manga voice puis manga timeline"); }
-  else setStatus("échec : " + await res.text(), "error");
+  if (res.ok) { dirty = false; $("save").disabled = true; setStatus("saved — re-run manga voice, then manga timeline"); }
+  else setStatus("failed: " + await res.text(), "error");
 }
 
 let audio = null;
@@ -193,7 +193,7 @@ function play(i) {
   });
 }
 
-function stopReading() { reading = null; if (audio) audio.pause(); $("read").textContent = "▶ Lecture"; }
+function stopReading() { reading = null; if (audio) audio.pause(); $("read").textContent = "▶ Play"; }
 
 async function readPage() {
   if (reading !== null) return stopReading();
@@ -230,7 +230,7 @@ window.addEventListener("beforeunload", (e) => { if (dirty) e.preventDefault(); 
 (async () => {
   project = await (await fetch("/api/project")).json();
   $("title").textContent = project.title;
-  document.title = `${project.title} — liseuse`;
+  document.title = `${project.title} — reader`;
   await load((parseInt(location.hash.slice(1)) || 1) - 1);
 })();
 </script>

@@ -1,7 +1,7 @@
-//! Appel des workers Python : `uv run --project workers python -m mangaw.<tâche> <job.json>`.
+//! Calls the Python workers: `uv run --project workers python -m mangaw.<task> <job.json>`.
 //!
-//! Le job est un fichier JSON écrit par Rust ; le worker écrit ses sorties là où le job
-//! l'indique et Rust les relit avec serde, ce qui valide le contrat entre les deux côtés.
+//! The job is a JSON file written by Rust; the worker writes its outputs where the job
+//! says and Rust reads them back with serde, which validates the contract between the two sides.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::home::{cache_dir, draw_venv_dir, is_installed, venv_dir, workers_dir};
 
-/// Projet uv d'un worker. Le dessin a le sien : ses dépendances sont incompatibles avec Magi.
+/// A worker's uv project. Drawing has its own: its dependencies are incompatible with Magi.
 #[derive(Clone, Copy)]
 pub enum Env {
     Main,
@@ -55,13 +55,13 @@ pub fn run_in(env: Env, task: &str, job: &impl Serialize, job_path: &Path) -> Re
     let mut cmd = Command::new("uv");
     cmd.args(["run", "--quiet", "--project"]).arg(env.project());
     if is_installed() {
-        // Le préfixe d'installation n'est pas à nous : on n'y réécrit pas uv.lock.
+        // The install prefix is not ours: don't rewrite uv.lock there.
         cmd.arg("--frozen");
     }
     let status = cmd
         .args(["python", "-m", &format!("{}.{task}", env.package())])
         .arg(job_path)
-        // Modèles et caches dans le dossier de l'app, jamais dans ~/.cache.
+        // Models and caches stay in the app folder, never in ~/.cache.
         .env("UV_PROJECT_ENVIRONMENT", env.venv())
         .env("HF_HOME", cache.join("huggingface"))
         .env("TORCH_HOME", cache.join("torch"))
@@ -73,9 +73,9 @@ pub fn run_in(env: Env, task: &str, job: &impl Serialize, job_path: &Path) -> Re
         .env("TRANSFORMERS_VERBOSITY", "error")
         .env("PYTHONWARNINGS", "ignore")
         .status()
-        .with_context(|| "uv introuvable : installe-le (brew install uv)")?;
+        .with_context(|| "uv not found: install it (brew install uv)")?;
     if !status.success() {
-        bail!("le worker {task} a échoué ({status}). Job : {}", job_path.display());
+        bail!("worker {task} failed ({status}). Job: {}", job_path.display());
     }
     Ok(())
 }

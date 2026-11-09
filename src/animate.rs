@@ -1,5 +1,5 @@
-//! Mode animate : les plans marqués `"mode": "animate"` deviennent des clips générés
-//! localement par Wan2.2 TI2V-5B (mlx-video). Clips mis en cache dans `clips/<hash>.mp4`.
+//! Animate mode: shots marked `"mode": "animate"` become clips generated
+//! locally by Wan2.2 TI2V-5B (mlx-video). Clips are cached in `clips/<hash>.mp4`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -25,10 +25,10 @@ pub fn model_dir() -> PathBuf {
 
 #[derive(Debug, Clone)]
 pub struct Settings {
-    /// Images générées (4n+1). 49 ≈ 2 s à 24 i/s.
+    /// Generated frames (4n+1). 49 ≈ 2 s at 24 fps.
     pub frames: u32,
     pub steps: Option<u32>,
-    /// Surface maximale du clip en pixels : la RAM est le facteur limitant.
+    /// Maximum clip area in pixels: RAM is the limiting factor.
     pub max_area: u32,
     pub seed: i64,
 }
@@ -39,7 +39,7 @@ impl Default for Settings {
     }
 }
 
-/// Dimensions du clip : ratio de la case, multiples de 32, surface ≤ max_area.
+/// Clip dimensions: panel aspect ratio, multiples of 32, area ≤ max_area.
 pub fn clip_size(pw: u32, ph: u32, max_area: u32) -> (u32, u32) {
     let ar = pw as f64 / ph as f64;
     let h = (max_area as f64 / ar).sqrt();
@@ -67,7 +67,7 @@ struct Job {
     items: Vec<Item>,
 }
 
-/// Génère les clips manquants. Renvoie plan → clip pour tous les plans animés.
+/// Generates the missing clips. Returns shot → clip for every animated shot.
 pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<HashMap<String, PathBuf>> {
     let animated: Vec<&&Shot> = shots.iter().filter(|s| s.mode == Mode::Animate).collect();
     let mut clips = HashMap::new();
@@ -77,8 +77,8 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
     let model = model_dir();
     if !model.join("config.json").exists() {
         bail!(
-            "modèle d'animation absent ({}). Installe-le avec `manga models install wan` (~34 Go à télécharger), \
-             ou rends en mode motion avec --no-animate",
+            "animation model missing ({}). Install it with `manga models install wan` (~34 GB to download), \
+             or render in motion mode with --no-animate",
             model.display()
         );
     }
@@ -89,7 +89,7 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
     let mut pages = HashMap::new();
     for shot in animated {
         if !pages.contains_key(&shot.page) {
-            let img = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("page illisible : {}", shot.page))?;
+            let img = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
             pages.insert(shot.page.clone(), img);
         }
         let panel = crop_panel(&pages[&shot.page], &shot.bbox);
@@ -120,13 +120,13 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
         clips.insert(shot.id.clone(), out);
     }
     if !items.is_empty() {
-        println!("{} clips à générer avec Wan2.2 (plusieurs minutes chacun)", items.len());
+        println!("{} clips to generate with Wan2.2 (several minutes each)", items.len());
         let job = Job { model_dir: model.to_string_lossy().into(), items };
         worker::run("animate", &job, &project.path("work/animate_job.json"))?;
     }
     for (id, clip) in &clips {
         if !clip.exists() {
-            bail!("clip non généré pour le plan {id}");
+            bail!("clip not generated for shot {id}");
         }
     }
     Ok(clips)

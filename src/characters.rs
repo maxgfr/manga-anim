@@ -1,6 +1,6 @@
-//! `manga characters` : les persos détectés par Magi, recadrés par libellé dans
-//! `characters/found/<libellé>/`. On en tire la banque `characters/<Nom>.png` (qui nomme
-//! les locuteurs à l'analyse) et les références d'un spin-off (`manga story`).
+//! `manga characters`: the characters detected by Magi, cropped by label into
+//! `characters/found/<label>/`. They feed the `characters/<Name>.png` bank (which names
+//! speakers during analysis) and the references of a spin-off (`manga story`).
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -17,14 +17,14 @@ use crate::home::{is_image, slugify};
 use crate::project::Project;
 use crate::render::crop_panel;
 
-/// Un perso trouvé : `index.json` liste ce qu'il faut pour le reconnaître et le nommer.
+/// A found character: `index.json` lists what's needed to recognize and name it.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Found {
     pub label: String,
     pub appearances: usize,
-    /// Chemins relatifs au projet, plus grandes apparitions d'abord.
+    /// Paths relative to the project, largest appearances first.
     pub crops: Vec<String>,
-    /// Quelques répliques attribuées à ce perso.
+    /// A few lines attributed to this character.
     pub lines: Vec<String>,
 }
 
@@ -48,8 +48,8 @@ pub fn run(project: &Project, per_character: usize) -> Result<Vec<Found>> {
     }
     if boxes.is_empty() {
         bail!(
-            "aucun personnage dans l'analyse : elle date d'avant `manga characters` ou vient du détecteur vision. \
-             Relance `manga analyze {} --force` (Magi), en sachant que ça écrase les corrections faites dans la liseuse",
+            "no characters in the analysis: it predates `manga characters` or comes from the vision detector. \
+             Re-run `manga analyze {} --force` (Magi), knowing that this overwrites corrections made in the reader",
             project.cfg.name
         );
     }
@@ -70,7 +70,7 @@ pub fn run(project: &Project, per_character: usize) -> Result<Vec<Found>> {
                 Entry::Occupied(e) => e.into_mut(),
                 Entry::Vacant(e) => {
                     let p = &project.cfg.pages[page];
-                    e.insert(image::open(project.page_path(p)).with_context(|| format!("page illisible : {}", p.file))?)
+                    e.insert(image::open(project.page_path(p)).with_context(|| format!("unreadable page: {}", p.file))?)
                 }
             };
             let rel = format!("{sub}/{:02}.png", n + 1);
@@ -85,7 +85,7 @@ pub fn run(project: &Project, per_character: usize) -> Result<Vec<Found>> {
     Ok(found)
 }
 
-/// Banque des persos nommés : `characters/<Nom>.png`, un portrait par perso.
+/// Bank of named characters: `characters/<Name>.png`, one portrait per character.
 pub fn bank(project: &Project) -> Vec<(String, PathBuf)> {
     let mut out: Vec<(String, PathBuf)> = fs::read_dir(project.path("characters"))
         .into_iter()
@@ -99,7 +99,7 @@ pub fn bank(project: &Project) -> Vec<(String, PathBuf)> {
     out
 }
 
-/// Lit `characters/found/index.json` s'il existe.
+/// Reads `characters/found/index.json` if it exists.
 pub fn load_found(project: &Project) -> Vec<Found> {
     fs::read_to_string(project.path("characters/found/index.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }

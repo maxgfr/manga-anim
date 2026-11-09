@@ -1,9 +1,9 @@
-//! Rendu de la timeline en vidéo : un MP4 par plan (mis en cache), puis concaténation.
+//! Renders the timeline to video: one MP4 per shot (cached), then concatenation.
 //!
-//! Deux styles. `scroll` (défaut) : la page en pleine largeur défile de case en case au fil
-//! de la lecture, comme une vidéo de lecture YouTube. `panels` : la case recadrée, animée par
-//! la caméra (zoom ou panoramique), posée sur un fond flou. Dans les deux cas un clip généré
-//! remplace la case animée, avec sous-titres et voix.
+//! Two styles. `scroll` (default): the full-width page scrolls from panel to panel as it is
+//! read, like a YouTube manga reading video. `panels`: the cropped panel, animated by the
+//! camera (zoom or pan), on a blurred background. In both cases a generated clip
+//! replaces the animated panel, with captions and voice.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -22,30 +22,30 @@ use crate::home::caption_font;
 use crate::project::Project;
 use crate::timeline::{Motion, Shot, Timeline};
 
-/// À incrémenter quand le rendu d'un plan change, pour invalider le cache.
+/// Bump when the rendering of a shot changes, to invalidate the cache.
 const RENDER_VERSION: u32 = 3;
 const FIT: f64 = 0.92;
 const PAN_ZOOM: f64 = 1.6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Style {
-    /// La page en pleine largeur défile de case en case pendant la lecture.
+    /// The full-width page scrolls from panel to panel during playback.
     Scroll,
-    /// Une case à la fois sur fond flou, avec zoom ou panoramique.
+    /// One panel at a time on a blurred background, with zoom or pan.
     Panels,
 }
 
 pub struct RenderOptions {
     pub out: PathBuf,
     pub style: Style,
-    /// Identifiants ou numéros (1 = premier plan) à rendre ; vide = tous.
+    /// Ids or numbers (1 = first shot) to render; empty = all.
     pub shots: Vec<String>,
     pub show_speaker: bool,
     pub captions: bool,
     pub jobs: usize,
 }
 
-/// Recadre la case avec une petite marge.
+/// Crops the panel with a small margin.
 pub fn crop_panel(page: &DynamicImage, bbox: &[f64; 4]) -> DynamicImage {
     let (w, h) = page.dimensions();
     let margin = 0.008 * w.max(h) as f64;
@@ -60,16 +60,16 @@ fn even(x: f64) -> u32 {
     ((x / 2.0).round() as u32 * 2).max(2)
 }
 
-/// Comment la case occupe l'image : zoompan sur une image fixe, ou fenêtre glissante.
+/// How the panel fills the frame: zoompan on a still image, or a sliding window.
 #[derive(Debug, PartialEq)]
 pub enum Camera {
-    /// Image entière visible (fw×fh), zoom de `from` à `to`.
+    /// Whole image visible (fw×fh), zoom from `from` to `to`.
     Zoom { fw: u32, fh: u32, from: f64, to: f64 },
-    /// Image agrandie à sw×sh, fenêtre vw×vh qui glisse. `axis_x` : sens horizontal.
+    /// Image enlarged to sw×sh, sliding vw×vh window. `axis_x`: horizontal direction.
     Pan { sw: u32, sh: u32, vw: u32, vh: u32, axis_x: bool, reverse: bool },
-    /// Clip vidéo mis à l'échelle fw×fh.
+    /// Video clip scaled to fw×fh.
     Clip { fw: u32, fh: u32 },
-    /// Bande de page déjà à la largeur du cadre, fenêtre plein cadre dont le haut va de y0 à y1.
+    /// Page strip already at frame width, full-frame window whose top goes from y0 to y1.
     Scroll { y0: f64, y1: f64 },
 }
 
@@ -111,8 +111,8 @@ pub struct CaptionPlacement {
     pub end: f64,
 }
 
-/// Filtergraph ffmpeg d'un plan. Entrées : 0 = case (image ou clip), 1..=n = sous-titres,
-/// puis les audios.
+/// ffmpeg filtergraph for a shot. Inputs: 0 = panel (image or clip), 1..=n = captions,
+/// then the audio tracks.
 pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), captions: &[CaptionPlacement], audio_starts: &[f64]) -> String {
     let (w, h) = frame;
     let frames = (duration * fps as f64).ceil() as u32;
@@ -120,7 +120,7 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
     let mut g = String::new();
     match cam {
         Camera::Zoom { fw, fh, from, to } => {
-            // Image source à 2× pour éviter le tremblement du zoompan sur les petits pas.
+            // Source image at 2× to avoid zoompan jitter on small steps.
             let z = format!("{from}+({to}-{from})*on/{frames}");
             write!(
                 g,
@@ -138,7 +138,7 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
         Camera::Clip { fw, fh } => {
             write!(g, "[0:v]scale={fw}:{fh}:flags=lanczos,fps={fps},setsar=1[fg];").unwrap();
         }
-        // Vitesse constante sur le plan : le défilement suit la lecture, sans à-coups.
+        // Constant speed over the shot: the scroll follows the reading, without jerks.
         Camera::Scroll { y0, y1 } => {
             write!(g, "[0:v]fps={fps},crop={w}:{h}:x=0:y='{y0:.2}+({:.2})*min(t/{duration:.3}\\,1)',setsar=1[v0];", y1 - y0).unwrap();
         }
@@ -183,13 +183,13 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
     g
 }
 
-/// Trajet de la caméra en style scroll : pour chaque plan, le haut de la fenêtre au début et
-/// à la fin, en pixels de la page mise à la largeur du cadre.
+/// Camera path in scroll style: for each shot, the top of the window at the start and
+/// at the end, in pixels of the page scaled to frame width.
 ///
-/// Chaque case passe au centre pendant sa lecture (une case plus haute que le cadre est
-/// parcourue de haut en bas), la caméra glisse vers la suivante à mi-chemin entre deux plans
-/// et ne remonte jamais. Le plan d'ensemble d'une page tient le haut de la page. Une page
-/// trop basse pour défiler (planche double) n'a pas de trajet : rendu en style panels.
+/// Each panel passes through the center while it is read (a panel taller than the frame is
+/// traversed top to bottom), the camera slides to the next one halfway between two shots
+/// and never moves back up. A page's overview shot holds the top of the page. A page
+/// too short to scroll (double-page spread) has no path: rendered in panels style.
 pub fn scroll_path(shots: &[&Shot], page_size: impl Fn(&str) -> Option<(u32, u32)>, frame: (u32, u32)) -> HashMap<String, (f64, f64)> {
     let (w, h) = (frame.0 as f64, frame.1 as f64);
     let mut path = HashMap::new();
@@ -224,7 +224,7 @@ pub fn scroll_path(shots: &[&Shot], page_size: impl Fn(&str) -> Option<(u32, u32
     path
 }
 
-/// Bande de la page couvrant le trajet, mise à la largeur du cadre, et le trajet ramené à la bande.
+/// Strip of the page covering the path, scaled to frame width, and the path relative to the strip.
 fn scroll_band(page: &DynamicImage, frame: (u32, u32), (y0, y1): (f64, f64)) -> (DynamicImage, Camera) {
     let (pw, ph) = page.dimensions();
     let s = frame.0 as f64 / pw as f64;
@@ -245,7 +245,7 @@ fn cache_key(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>,
     h.update(format!("{}:{:?}", page.len(), page.modified().ok()));
     for line in &shot.lines {
         if let Some(a) = &line.audio {
-            let m = fs::metadata(project.path(a)).with_context(|| format!("audio manquant : {a} (manga voice …)"))?;
+            let m = fs::metadata(project.path(a)).with_context(|| format!("missing audio: {a} (manga voice …)"))?;
             h.update(format!("{a}:{}:{:?}", m.len(), m.modified().ok()));
         }
     }
@@ -259,7 +259,7 @@ fn cache_key(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>,
 fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>, scroll: Option<(f64, f64)>, style: &CaptionStyle, opts: &RenderOptions, out: &Path) -> Result<()> {
     let work = out.with_extension("parts");
     fs::create_dir_all(&work)?;
-    let page = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("page illisible : {}", shot.page))?;
+    let page = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
     let frame = (tl.width, tl.height);
     let panel_path = work.join("panel.png");
     let cam = match scroll.filter(|_| clip.is_none()) {
@@ -306,10 +306,10 @@ fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path
         .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"])
         .args(["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"])
         .arg(out);
-    let output = cmd.output().context("ffmpeg introuvable (brew install ffmpeg)")?;
+    let output = cmd.output().context("ffmpeg not found (brew install ffmpeg)")?;
     if !output.status.success() {
         fs::write(work.join("filter.txt"), &graph).ok();
-        bail!("ffmpeg a échoué sur le plan {} : {}", shot.id, String::from_utf8_lossy(&output.stderr).trim());
+        bail!("ffmpeg failed on shot {}: {}", shot.id, String::from_utf8_lossy(&output.stderr).trim());
     }
     fs::remove_dir_all(&work).ok();
     Ok(())
@@ -324,7 +324,7 @@ pub fn select<'a>(tl: &'a Timeline, wanted: &[String]) -> Result<Vec<&'a Shot>> 
         .iter()
         .map(|w| match w.parse::<usize>() {
             Ok(n) if n >= 1 && n <= tl.shots.len() => Ok(&tl.shots[n - 1]),
-            _ => tl.shots.iter().find(|s| &s.id == w).with_context(|| format!("plan inconnu : {w}")),
+            _ => tl.shots.iter().find(|s| &s.id == w).with_context(|| format!("unknown shot: {w}")),
         })
         .collect()
 }
@@ -332,12 +332,12 @@ pub fn select<'a>(tl: &'a Timeline, wanted: &[String]) -> Result<Vec<&'a Shot>> 
 pub fn run(project: &Project, tl: &Timeline, clips: &HashMap<String, PathBuf>, opts: &RenderOptions) -> Result<PathBuf> {
     let shots = select(tl, &opts.shots)?;
     if shots.is_empty() {
-        bail!("aucun plan à rendre");
+        bail!("no shots to render");
     }
     let style = CaptionStyle::load(&caption_font(), tl.height, tl.width, opts.show_speaker)?;
     let cache = project.path("work/render");
     fs::create_dir_all(&cache)?;
-    // Le trajet dépend des plans voisins : calculé sur toute la timeline, même pour un aperçu.
+    // The path depends on neighboring shots: computed over the whole timeline, even for a preview.
     let scroll = match opts.style {
         Style::Scroll => {
             let active: Vec<&Shot> = tl.shots.iter().filter(|s| !s.skip).collect();
@@ -358,7 +358,7 @@ pub fn run(project: &Project, tl: &Timeline, clips: &HashMap<String, PathBuf>, o
         }
         parts.push(path);
     }
-    println!("{} plans, {} à rendre, durée {:.0}s", shots.len(), todo.len(), shots.iter().map(|s| s.duration).sum::<f64>());
+    println!("{} shots, {} to render, duration {:.0}s", shots.len(), todo.len(), shots.iter().map(|s| s.duration).sum::<f64>());
 
     let bar = indicatif::ProgressBar::new(todo.len() as u64);
     let next = AtomicUsize::new(0);
@@ -394,9 +394,9 @@ pub fn run(project: &Project, tl: &Timeline, clips: &HashMap<String, PathBuf>, o
         .arg(&opts.out)
         .status()?;
     if !status.success() {
-        bail!("concaténation ffmpeg échouée");
+        bail!("ffmpeg concatenation failed");
     }
-    // Les plans qui ne sont plus dans la timeline encombrent le cache.
+    // Shots no longer in the timeline clutter the cache.
     let keep: Vec<&PathBuf> = parts.iter().collect();
     let all_ids: Vec<&str> = tl.shots.iter().map(|s| s.id.as_str()).collect();
     for entry in fs::read_dir(&cache)?.flatten() {
@@ -417,16 +417,16 @@ mod tests {
     #[test]
     fn camera_choices() {
         let frame = (1920, 1080);
-        // Case carrée, zoom : tient dans 92 % de la hauteur.
+        // Square panel, zoom: fits in 92% of the height.
         assert_eq!(camera(1000, 1000, frame, Motion::ZoomIn, false), Camera::Zoom { fw: 994, fh: 994, from: 1.0, to: 1.1 });
-        // Case très haute : panoramique vertical sur une version agrandie.
+        // Very tall panel: vertical pan over an enlarged version.
         match camera(400, 1600, frame, Motion::PanDown, false) {
             Camera::Pan { sw, sh, vh, axis_x: false, reverse: false, .. } => {
                 assert!(sh > vh && sw == 398);
             }
             other => panic!("{other:?}"),
         }
-        // Panoramique demandé sans marge pour glisser : retombe sur un zoom.
+        // Pan requested with no room to slide: falls back to a zoom.
         assert!(matches!(camera(1000, 1000, frame, Motion::PanLeft, false), Camera::Zoom { .. }));
     }
 
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn scroll_follows_panels_down_the_page() {
-        // Page 1000×1500 → 1920×2880 dans le cadre : 1800 px de défilement possible.
+        // 1000×1500 page → 1920×2880 in the frame: 1800 px of possible scroll.
         let shots = [
             shot("p1_page", "1.png", [0.0, 0.0, 1000.0, 1500.0]),
             shot("p1_k0", "1.png", [0.0, 0.0, 1000.0, 400.0]),
@@ -473,17 +473,17 @@ mod tests {
         let refs: Vec<&Shot> = shots.iter().collect();
         let size = |p: &str| Some(if p == "1.png" { (1000, 1500) } else { (3000, 1500) });
         let path = scroll_path(&refs, size, (1920, 1080));
-        assert_eq!(path["p1_page"], (0.0, 0.0), "plan d'ensemble : haut de la page");
-        // Rangée des cases 1 et 2 (806–1536 px), centrée dans le cadre.
+        assert_eq!(path["p1_page"], (0.0, 0.0), "overview shot: top of the page");
+        // Row of panels 1 and 2 (806–1536 px), centered in the frame.
         let row = (806.4 + 1536.0) / 2.0 - 540.0;
-        // Case 0 (0–768 px) déjà visible en haut : pas de remontée sous 0, puis mi-chemin.
+        // Panel 0 (0–768 px) already visible at the top: no move above 0, then halfway.
         assert_eq!(path["p1_k0"], (0.0, row / 2.0));
-        // Cases 1 et 2 sur la même rangée : la caméra y arrive pendant la 1, repart pendant la 2.
+        // Panels 1 and 2 on the same row: the camera arrives during 1, leaves during 2.
         assert_eq!(path["p1_k1"], (row / 2.0, row));
         assert_eq!(path["p1_k2"].0, row);
-        // Dernière case plus haute que le cadre : parcourue jusqu'au bas de la page.
+        // Last panel taller than the frame: traversed to the bottom of the page.
         assert_eq!(path["p1_k3"].1, 1800.0);
-        assert!(!path.contains_key("p2_k0"), "planche double : pas de défilement");
+        assert!(!path.contains_key("p2_k0"), "double-page spread: no scrolling");
     }
 
     #[test]

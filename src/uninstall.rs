@@ -1,7 +1,7 @@
-//! `manga uninstall` : supprime le dossier de l'app (code, venv, données, modèles, caches)
-//! et les deux liens posés hors de ce dossier : le binaire et la skill Claude Code.
-//! Si le binaire est installé (Homebrew…), seuls les données et le lien de la skill sont
-//! supprimés : le code appartient au gestionnaire de paquets.
+//! `manga uninstall`: removes the app folder (code, venv, data, models, caches)
+//! and the two links placed outside it: the binary and the Claude Code skill.
+//! If the binary is installed (Homebrew…), only the data and the skill link are
+//! removed: the code belongs to the package manager.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::home::{app_dir, data_dir, is_installed};
 
-/// Liens symboliques qui pointent dans le dossier de l'app.
+/// Symlinks that point into the app folder.
 fn outside_links() -> Vec<PathBuf> {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     [home.join(".cargo/bin/manga"), home.join(".claude/skills/manga")]
@@ -23,17 +23,17 @@ pub fn run(yes: bool) -> Result<()> {
     let installed = is_installed();
     let target = if installed { data_dir() } else { app_dir() };
     let links = outside_links();
-    println!("à supprimer :");
+    println!("to remove:");
     if installed {
-        println!("  {}  (venv Python, planches, projets, vidéos, modèles, caches)", target.display());
+        println!("  {}  (Python venv, pages, projects, videos, models, caches)", target.display());
     } else {
-        println!("  {}  (code, venv Python, planches, projets, vidéos, modèles, caches)", target.display());
+        println!("  {}  (code, Python venv, pages, projects, videos, models, caches)", target.display());
     }
     for l in &links {
-        println!("  {}  (lien)", l.display());
+        println!("  {}  (link)", l.display());
     }
     if !yes {
-        println!("\nrien n'a été supprimé. Confirme avec : manga uninstall --yes");
+        println!("\nnothing was removed. Confirm with: manga uninstall --yes");
         return Ok(());
     }
     for l in &links {
@@ -41,17 +41,17 @@ pub fn run(yes: bool) -> Result<()> {
     }
     if installed {
         remove_data(&target)?;
-        println!("supprimé. Reste le binaire : brew uninstall manga-anim (ou ton gestionnaire de paquets).");
+        println!("removed. The binary remains: brew uninstall manga-anim (or your package manager).");
     } else {
         remove_tree(&target)?;
-        println!("supprimé.");
+        println!("removed.");
     }
     Ok(())
 }
 
 fn remove_tree(path: &Path) -> Result<()> {
-    // Garde-fou : on ne supprime qu'un dossier qui ressemble bien à l'app.
-    anyhow::ensure!(path.join("Cargo.toml").exists() && path.join("workers").exists(), "{} n'est pas le dossier de manga-anim", path.display());
+    // Safeguard: only remove a folder that really looks like the app.
+    anyhow::ensure!(path.join("Cargo.toml").exists() && path.join("workers").exists(), "{} is not the manga-anim folder", path.display());
     fs::remove_dir_all(path)?;
     Ok(())
 }
@@ -60,11 +60,11 @@ fn remove_data(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    // Garde-fou : le dossier ne doit contenir que ce que l'app y crée.
+    // Safeguard: the folder must contain only what the app creates there.
     const OURS: [&str; 7] = ["library", "projects", "models", "cache", "venv", "venv-draw", ".DS_Store"];
     for entry in fs::read_dir(path)? {
         let name = entry?.file_name();
-        anyhow::ensure!(OURS.contains(&name.to_string_lossy().as_ref()), "{} contient {:?}, qui n'est pas à manga-anim : rien supprimé", path.display(), name);
+        anyhow::ensure!(OURS.contains(&name.to_string_lossy().as_ref()), "{} contains {:?}, which does not belong to manga-anim: nothing removed", path.display(), name);
     }
     fs::remove_dir_all(path)?;
     Ok(())

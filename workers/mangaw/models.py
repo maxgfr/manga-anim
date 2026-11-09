@@ -1,8 +1,8 @@
-"""Installation des modèles lourds.
+"""Installation of the heavy models.
 
-`wan` : télécharge Wan-AI/Wan2.2-TI2V-5B (~34 Go), le convertit au format MLX avec le
-transformer quantifié (4 bits par défaut), puis supprime les poids PyTorch d'origine.
-Job : {"model": "wan", "src_dir": "...", "out_dir": "...", "bits": 4}
+`wan`: downloads Wan-AI/Wan2.2-TI2V-5B (~34 GB), converts it to MLX format with a
+quantized transformer (4-bit by default), then deletes the original PyTorch weights.
+Job: {"model": "wan", "src_dir": "...", "out_dir": "...", "bits": 4}
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def install_wan(job: dict) -> None:
     convert_wan_checkpoint(str(src), job["out_dir"], "bfloat16", "2.2", quantize=True, bits=job.get("bits", 4))
     if not job.get("keep_source"):
         shutil.rmtree(src)
-    print(f"modèle prêt : {job['out_dir']}", file=sys.stderr)
+    print(f"model ready: {job['out_dir']}", file=sys.stderr)
 
 
 def main() -> None:
@@ -30,7 +30,7 @@ def main() -> None:
     if job["model"] == "wan":
         install_wan(job)
     else:
-        raise SystemExit(f"modèle inconnu : {job['model']}")
+        raise SystemExit(f"unknown model: {job['model']}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-//! Voix : `cast.toml` associe chaque personnage à une voix Kokoro, puis le worker `tts`
-//! génère un WAV par bulle. Le cache `audio/index.json` évite de régénérer une bulle
-//! dont le texte et la voix n'ont pas changé.
+//! Voices: `cast.toml` maps each character to a Kokoro voice, then the `tts` worker
+//! generates one WAV per bubble. The `audio/index.json` cache avoids regenerating a bubble
+//! whose text and voice haven't changed.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -15,7 +15,7 @@ use crate::worker;
 
 pub const TTS_MODEL: &str = "mlx-community/Kokoro-82M-bf16";
 
-/// Voix Kokoro par langue : la première sert au narrateur, les suivantes aux personnages.
+/// Kokoro voices per language: the first is for the narrator, the others for characters.
 fn voices_for(lang: &str) -> Option<&'static [&'static str]> {
     Some(match lang {
         "en" => &["af_heart", "am_adam", "af_bella", "am_michael", "bf_emma", "bm_george", "af_nicole", "am_fenrir", "bf_alice", "bm_daniel"],
@@ -33,20 +33,20 @@ fn voices_for(lang: &str) -> Option<&'static [&'static str]> {
 pub fn default_cast(lang: &str) -> String {
     let Some(voices) = voices_for(lang) else {
         return format!(
-            "# Kokoro n'a pas de voix pour « {lang} » : la vidéo sera sous-titrée sans voix.\n\
-             # Voix disponibles : https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md\n\
+            "# Kokoro has no voice for \"{lang}\": the video will be captioned without voices.\n\
+             # Available voices: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md\n\
              enabled = false\nspeed = 1.0\nnarrator = \"af_heart\"\npool = [\"af_heart\"]\n\n[voices]\n"
         );
     };
     let pool: Vec<String> = voices.iter().skip(1).map(|v| format!("\"{v}\"")).collect();
     format!(
-        "# Voix Kokoro : https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md\n\
-         # « voix@0.9 » = même voix, débit 0.9. La 1re lettre de la voix fixe la langue.\n\
+        "# Kokoro voices: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md\n\
+         # \"voice@0.9\" = same voice at speed 0.9. The first letter of the voice sets the language.\n\
          enabled = true\n\
          speed = 1.0\n\
-         # Cartouches et bulles sans locuteur identifié.\n\
+         # Caption boxes and bubbles with no identified speaker.\n\
          narrator = \"{}\"\n\
-         # Distribuées dans l'ordre aux personnages non listés dans [voices].\n\
+         # Assigned in order to characters not listed in [voices].\n\
          pool = [{}]\n\n\
          [voices]\n\
          # Thorfinn = \"am_adam\"\n",
@@ -85,7 +85,7 @@ impl Cast {
     }
 }
 
-/// Attribue une voix à chaque locuteur, de façon stable : ordre de première apparition.
+/// Assigns a voice to each speaker, stably: in order of first appearance.
 pub struct Casting<'a> {
     cast: &'a Cast,
     assigned: HashMap<String, String>,
@@ -96,7 +96,7 @@ impl<'a> Casting<'a> {
         Self { cast, assigned: HashMap::new() }
     }
 
-    /// (voix Kokoro, débit)
+    /// (Kokoro voice, speed)
     pub fn voice(&mut self, speaker: Option<&str>) -> (String, f64) {
         let spec = match speaker {
             None => self.cast.narrator.clone(),
@@ -121,7 +121,7 @@ impl<'a> Casting<'a> {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct AudioIndex {
-    /// id de bulle → (hash texte+voix, durée en s)
+    /// bubble id → (text+voice hash, duration in s)
     pub clips: BTreeMap<String, (String, f64)>,
 }
 
@@ -154,8 +154,8 @@ struct TtsJob {
     results: String,
 }
 
-/// Rend le texte dicible : `...` crée des silences étranges, et un texte tout en
-/// capitales (lettrage manga) risque d'être épelé comme des sigles.
+/// Makes text speakable: `...` creates odd silences, and all-caps text
+/// (manga lettering) risks being spelled out like acronyms.
 pub fn speakable(text: &str) -> String {
     let t = text.replace('…', "...").replace("...", ", ");
     let t = t.trim_start_matches([',', ' ']).trim();
@@ -178,7 +178,7 @@ pub fn speakable(text: &str) -> String {
             start = true;
         }
     }
-    // Le pronom anglais « I » reste en capitale (I, I'm, I'll…).
+    // The English pronoun "I" stays capitalized (I, I'm, I'll…).
     out.split(' ')
         .map(|w| if w == "i" || w.starts_with("i'") { format!("I{}", &w[1..]) } else { w.to_string() })
         .collect::<Vec<_>>()
@@ -188,7 +188,7 @@ pub fn speakable(text: &str) -> String {
 pub fn run(project: &Project, force: bool) -> Result<()> {
     let cast = Cast::load(project)?;
     if !cast.enabled {
-        println!("voix désactivées dans cast.toml (enabled = false) : rien à faire");
+        println!("voices disabled in cast.toml (enabled = false): nothing to do");
         return Ok(());
     }
     let mut casting = Casting::new(&cast);
@@ -216,15 +216,15 @@ pub fn run(project: &Project, force: bool) -> Result<()> {
     }
     index.clips.retain(|id, _| wanted.contains(id));
     if items.is_empty() {
-        println!("voix à jour ({} répliques)", wanted.len());
+        println!("voices up to date ({} lines)", wanted.len());
     } else {
-        println!("{} répliques à générer ({} déjà à jour)", items.len(), wanted.len() - items.len());
+        println!("{} lines to generate ({} already up to date)", items.len(), wanted.len() - items.len());
         let results = project.path("work/tts_durations.json");
         let job = TtsJob { model: TTS_MODEL, items, results: results.to_string_lossy().into() };
         worker::run("tts", &job, &project.path("work/tts_job.json"))?;
         let durations: HashMap<String, f64> = serde_json::from_str(&fs::read_to_string(&results)?)?;
         for (id, hash) in hashes {
-            let Some(d) = durations.get(&id) else { bail!("durée manquante pour {id}") };
+            let Some(d) = durations.get(&id) else { bail!("missing duration for {id}") };
             index.clips.insert(id, (hash, *d));
         }
     }
@@ -241,10 +241,10 @@ mod tests {
     fn casting_is_stable() {
         let cast: Cast = toml::from_str(&default_cast("en")).unwrap();
         let mut c = Casting::new(&cast);
-        let a = c.voice(Some("perso-1"));
-        let b = c.voice(Some("perso-2"));
+        let a = c.voice(Some("character-1"));
+        let b = c.voice(Some("character-2"));
         assert_ne!(a, b);
-        assert_eq!(c.voice(Some("perso-1")), a);
+        assert_eq!(c.voice(Some("character-1")), a);
         assert_eq!(c.voice(None).0, "af_heart");
     }
 

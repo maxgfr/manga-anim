@@ -1,14 +1,14 @@
-//! Emplacements sur disque.
+//! Locations on disk.
 //!
-//! Lancé depuis un clone du dépôt, tout vit dans ce dossier : code, venv Python, données,
-//! modèles et caches. Installé (Homebrew ou autre préfixe : `bin/manga` à côté de
-//! `share/manga-anim/{workers,skills}`), le code reste dans le préfixe et tout le reste va
-//! dans un seul dossier de données. Dans les deux cas, supprimer ces dossiers supprime tout.
+//! When run from a clone of the repo, everything lives in that folder: code, Python venv, data,
+//! models and caches. When installed (Homebrew or another prefix: `bin/manga` next to
+//! `share/manga-anim/{workers,skills}`), the code stays in the prefix and everything else goes
+//! into a single data folder. Either way, deleting these folders removes everything.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// `<préfixe>/share/manga-anim` si le binaire est installé, `None` s'il tourne depuis le dépôt.
+/// `<prefix>/share/manga-anim` if the binary is installed, `None` if it runs from the repo.
 fn installed_share() -> Option<&'static Path> {
     static SHARE: OnceLock<Option<PathBuf>> = OnceLock::new();
     SHARE
@@ -24,12 +24,12 @@ pub fn is_installed() -> bool {
     installed_share().is_some()
 }
 
-/// Dossier du code : le préfixe d'installation, sinon le dépôt qui a compilé le binaire.
+/// Code folder: the install prefix, otherwise the repo that built the binary.
 pub fn app_dir() -> PathBuf {
     installed_share().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
-/// Racine des données : `library/`, `projects/`, `models/`, `cache/` (et `venv/` si installé).
+/// Data root: `library/`, `projects/`, `models/`, `cache/` (and `venv/` if installed).
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_HOME") {
         return PathBuf::from(dir);
@@ -41,7 +41,7 @@ pub fn data_dir() -> PathBuf {
     app_dir().join("data")
 }
 
-/// Caches des workers (Hugging Face, torch, uv…), redirigés ici plutôt que dans `~/.cache`.
+/// Worker caches (Hugging Face, torch, uv…), redirected here rather than to `~/.cache`.
 pub fn cache_dir() -> PathBuf {
     data_dir().join("cache")
 }
@@ -54,7 +54,7 @@ pub fn projects_dir() -> PathBuf {
     data_dir().join("projects")
 }
 
-/// Projet uv des workers ML.
+/// uv project of the ML workers.
 pub fn workers_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MANGA_WORKERS") {
         return PathBuf::from(dir);
@@ -62,18 +62,18 @@ pub fn workers_dir() -> PathBuf {
     app_dir().join("workers")
 }
 
-/// Venv Python des workers : dans le dépôt, ou dans les données si le code est installé
-/// (le préfixe d'installation est remplacé à chaque mise à jour).
+/// Python venv of the workers: in the repo, or in the data folder if the code is installed
+/// (the install prefix is replaced on every update).
 pub fn venv_dir() -> PathBuf {
     if is_installed() { data_dir().join("venv") } else { workers_dir().join(".venv") }
 }
 
-/// Venv du worker de dessin, à part : mflux veut transformers 5, Magi transformers 4.
+/// Separate venv for the drawing worker: mflux needs transformers 5, Magi transformers 4.
 pub fn draw_venv_dir() -> PathBuf {
     if is_installed() { data_dir().join("venv-draw") } else { workers_dir().join("draw/.venv") }
 }
 
-/// Police utilisée pour les sous-titres. Arial Unicode couvre latin, kana, kanji et hangul.
+/// Font used for captions. Arial Unicode covers Latin, kana, kanji and hangul.
 pub fn caption_font() -> PathBuf {
     if let Ok(font) = std::env::var("MANGA_FONT") {
         return PathBuf::from(font);
@@ -81,7 +81,7 @@ pub fn caption_font() -> PathBuf {
     PathBuf::from("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")
 }
 
-/// Identifiant de dossier lisible : minuscules, chiffres et tirets.
+/// Readable folder identifier: lowercase letters, digits and hyphens.
 pub fn slugify(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
@@ -94,7 +94,7 @@ pub fn slugify(s: &str) -> String {
     out.trim_end_matches('-').to_string()
 }
 
-/// Tri « naturel » : `page2` avant `page10`.
+/// "Natural" sort: `page2` before `page10`.
 pub fn natural_key(s: &str) -> Vec<(u8, u64, String)> {
     let mut key = Vec::new();
     let mut chars = s.chars().peekable();
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn slug() {
-        assert_eq!(slugify("Vinland Saga — Tome 12!"), "vinland-saga-tome-12");
+        assert_eq!(slugify("Vinland Saga — Volume 12!"), "vinland-saga-volume-12");
         assert_eq!(slugify("進撃の巨人"), "進撃の巨人");
     }
 

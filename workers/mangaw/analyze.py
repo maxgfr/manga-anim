@@ -1,8 +1,8 @@
-"""Analyse des pages : cases, bulles, ordre de lecture, locuteurs, OCR.
+"""Page analysis: panels, speech bubbles, reading order, speakers, OCR.
 
-Job (écrit par `manga analyze`) :
+Job (written by `manga analyze`):
 {
-  "lang": "fr", "direction": "rtl", "detector": "magi" | "vision",
+  "lang": "fr", "direction": "rtl", "detector": "magi" | "vision" | "api",
   "character_bank": [{"name": "Thorfinn", "image": "/…/characters/Thorfinn.png"}],
   "pages": [{"image": "/…/pages/0001.png", "out": "/…/analysis/0001.json", "prefix": "0001"}]
 }
@@ -20,11 +20,11 @@ from PIL import Image
 
 from .ocr import Ocr, plausible, vision_observations
 
-CHAPTER_BATCH = 24  # pages par passe Magi : assez pour regrouper les persos, assez peu pour 16 Go
+CHAPTER_BATCH = 24  # pages per Magi batch: enough to cluster characters, few enough for 16 GB
 
 
 def rows_in_order(boxes: list[list[float]], rtl: bool) -> list[int]:
-    """Ordre de lecture par rangées : haut → bas, puis droite → gauche (rtl) ou l'inverse."""
+    """Reading order by rows: top → bottom, then right → left (rtl) or the reverse."""
     idx = sorted(range(len(boxes)), key=lambda i: boxes[i][1])
     rows: list[list[int]] = []
     for i in idx:
@@ -68,7 +68,7 @@ def order_texts(texts: list[dict], panels: list[list[float]], rtl: bool) -> list
     return out
 
 
-# --- Détecteur de repli : OpenCV pour les cases, Vision pour le texte -----------------
+# --- Fallback detector: OpenCV for panels, Vision for text -----------------------------
 
 
 def detect_panels_cv(gray: np.ndarray) -> list[list[float]]:
@@ -83,14 +83,14 @@ def detect_panels_cv(gray: np.ndarray) -> list[list[float]]:
         x, y, bw, bh = cv2.boundingRect(c)
         if bw * bh > 0.03 * w * h and bw > 0.1 * w and bh > 0.08 * h:
             panels.append([float(x), float(y), float(x + bw), float(y + bh)])
-    # Une case englobant toutes les autres (cadre de page) n'en est pas une.
+    # A panel enclosing all the others (the page frame) is not a panel.
     if len(panels) > 1:
         panels = [p for p in panels if (p[2] - p[0]) * (p[3] - p[1]) < 0.9 * w * h]
     return panels or [[0.0, 0.0, float(w), float(h)]]
 
 
 def group_lines(obs: list[tuple[str, tuple]]) -> list[list[float]]:
-    """Fusionne les lignes Vision proches en bulles."""
+    """Merge nearby Vision lines into bubbles."""
     boxes = [list(b) for _, b in obs]
     merged = True
     while merged:
@@ -122,6 +122,21 @@ def analyze_vision(pages: list[dict], lang: str, rtl: bool, ocr: Ocr) -> None:
         write_page(job, img, panels, order_texts(texts, panels, rtl), ocr, "vision")
 
 
+def analyze_api(pages: list[dict], bank: list[dict], lang: str, rtl: bool, ocr: Ocr) -> None:
+    """Local geometry and OCR, reviewed by the Claude API. The final analysis is only written
+    once the page is reviewed: a failure leaves the page to redo, not half processed."""
+    from .review import Reviewer
+
+    reviewer = Reviewer(lang, rtl, [c["name"] for c in bank])
+    for job in pages:
+        draft = Path(job["out"] + ".draft")
+        analyze_vision([{**job, "out": str(draft)}], lang, rtl, ocr)
+        page = reviewer.review(job["image"], json.loads(draft.read_text()))
+        Path(job["out"]).write_text(json.dumps(page, ensure_ascii=False, indent=2))
+        draft.unlink()
+    print(f"Claude API: {reviewer.tokens[0]} input tokens, {reviewer.tokens[1]} output tokens", file=sys.stderr)
+
+
 # --- Magi v2 ----------------------------------------------------------------------------
 
 
@@ -149,7 +164,7 @@ def analyze_magi(pages: list[dict], bank: list[dict], rtl: bool, ocr: Ocr) -> No
         t0 = time.time()
         with torch.no_grad():
             results = model.do_chapter_wide_prediction(arrays, character_bank, use_tqdm=False, do_ocr=False)
-        print(f"magi : pages {start + 1}-{start + len(batch)} en {time.time() - t0:.0f}s", file=sys.stderr)
+        print(f"magi: pages {start + 1}-{start + len(batch)} in {time.time() - t0:.0f}s", file=sys.stderr)
         for job, img, res in zip(batch, images, results):
             panels = [list(map(float, p)) for p in res["panels"]]
             if not rtl:
@@ -166,28 +181,28 @@ def analyze_magi(pages: list[dict], bank: list[dict], rtl: bool, ocr: Ocr) -> No
                     "speaker": speakers.get(i),
                     "essential": bool(res["is_essential_text"][i]) if i < len(res["is_essential_text"]) else True,
                 })
-            # Magi ordonne déjà les bulles pour le manga (rtl) ; en ltr on réordonne.
+            # Magi already orders bubbles for manga (rtl); for ltr we reorder them.
             if not rtl:
                 texts = order_texts(texts, panels, rtl)
             write_page(job, img, panels, texts, ocr, "magiv2", characters)
 
 
 def character_labels(res: dict, batch: int) -> list[str | None]:
-    """Nom de chaque perso détecté. Sans banque, son cluster : perso-<passe>.<cluster>, car Magi
-    ne regroupe les persos qu'à l'intérieur d'une passe de CHAPTER_BATCH pages."""
+    """Name of each detected character. Without a bank, its cluster: character-<batch>.<cluster>,
+    because Magi only clusters characters within a batch of CHAPTER_BATCH pages."""
     names = res.get("character_names") or []
     clusters = res.get("character_cluster_labels") or []
     out = []
     for i in range(max(len(res.get("characters") or []), len(clusters), len(names))):
         name = names[i] if i < len(names) else None
         if not name or name.lower() in ("other", "unsure"):
-            name = f"perso-{batch}.{clusters[i]}" if i < len(clusters) else None
+            name = f"character-{batch}.{clusters[i]}" if i < len(clusters) else None
         out.append(name)
     return out
 
 
 def speaker_names(res: dict, labels: list[str | None]) -> dict[int, str]:
-    """Bulle → nom du perso qui parle."""
+    """Bubble → name of the character speaking."""
     out = {}
     for text_idx, char_idx in res.get("text_character_associations") or []:
         if char_idx < len(labels) and labels[char_idx]:
@@ -195,7 +210,7 @@ def speaker_names(res: dict, labels: list[str | None]) -> dict[int, str]:
     return out
 
 
-# --- Sortie --------------------------------------------------------------------------
+# --- Output --------------------------------------------------------------------------
 
 
 def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr: Ocr, detector: str, characters: list[dict] | None = None) -> None:
@@ -205,7 +220,7 @@ def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr
         x1, y1, x2, y2 = t["bbox"]
         pad = 4
         crop = img.crop((max(0, int(x1) - pad), max(0, int(y1) - pad), min(w, int(x2) + pad), min(h, int(y2) + pad)))
-        # On lit aussi les onomatopées : la liseuse permet de les réactiver.
+        # Sound effects are read too: the reader can turn them back on.
         text = ocr.read(crop)
         out_texts.append({
             "id": f"{job['prefix']}_t{i}",
@@ -213,7 +228,7 @@ def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr
             "panel": t["panel"],
             "text": text,
             "speaker": t["speaker"],
-            # Bulle sans texte lisible : rien à dire.
+            # Bubble with no readable text: nothing to say.
             "essential": t["essential"] and plausible(text, ocr.lang),
         })
     result = {
@@ -228,7 +243,7 @@ def write_page(job: dict, img: Image.Image, panels: list, texts: list[dict], ocr
     Path(job["out"]).parent.mkdir(parents=True, exist_ok=True)
     Path(job["out"]).write_text(json.dumps(result, ensure_ascii=False, indent=2))
     n = sum(1 for t in out_texts if t["essential"])
-    print(f"{result['page']} : {len(panels)} cases, {n} bulles", file=sys.stderr)
+    print(f"{result['page']}: {len(panels)} panels, {n} bubbles", file=sys.stderr)
 
 
 def main() -> None:
@@ -237,6 +252,8 @@ def main() -> None:
     ocr = Ocr(job["lang"])
     if job["detector"] == "vision":
         analyze_vision(job["pages"], job["lang"], rtl, ocr)
+    elif job["detector"] == "api":
+        analyze_api(job["pages"], job.get("character_bank", []), job["lang"], rtl, ocr)
     else:
         analyze_magi(job["pages"], job.get("character_bank", []), rtl, ocr)
 

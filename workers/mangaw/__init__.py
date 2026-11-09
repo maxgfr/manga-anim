@@ -1,1 +1,1 @@
-"""Workers ML appelés par la CLI `manga`."""
+"""ML workers called by the `manga` CLI."""

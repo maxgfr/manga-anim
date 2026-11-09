@@ -1,5 +1,5 @@
-//! Sources en ligne. Chacune renvoie des séries et des chapitres, puis télécharge un
-//! chapitre dans la bibliothèque locale.
+//! Online sources. Each one returns series and chapters, then downloads a
+//! chapter into the local library.
 
 pub mod mangadex;
 
@@ -24,7 +24,7 @@ pub struct ChapterInfo {
     pub title: String,
     pub pages: u32,
     pub group: String,
-    /// Chapitre publié ailleurs (éditeur officiel) : pas de pages téléchargeables.
+    /// Chapter published elsewhere (official publisher): no downloadable pages.
     pub external_url: Option<String>,
 }
 
@@ -32,14 +32,14 @@ pub trait Source {
     fn search(&self, query: &str, lang: Option<&str>) -> Result<Vec<SeriesHit>>;
     fn chapters(&self, series_id: &str, lang: &str) -> Result<Vec<ChapterInfo>>;
     fn series_title(&self, series_id: &str) -> Result<String>;
-    /// Télécharge les pages dans `dest` (créé vide). Renvoie le nombre de pages.
+    /// Downloads the pages into `dest` (created empty). Returns the number of pages.
     fn fetch(&self, chapter: &ChapterInfo, dest: &Path) -> Result<usize>;
 }
 
 pub fn by_name(name: &str) -> Result<Box<dyn Source>> {
     match name {
         "mangadex" => Ok(Box::new(mangadex::MangaDex::new()?)),
-        other => bail!("source inconnue : {other} (disponible : mangadex)"),
+        other => bail!("unknown source: {other} (available: mangadex)"),
     }
 }
 
@@ -54,7 +54,7 @@ pub fn parse_chapter_spec(spec: &str) -> Result<Vec<(f64, f64)>> {
             let (a, b) = part.split_once('-').unwrap_or((part, part));
             match (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
                 (Ok(a), Ok(b)) if a <= b => Ok((a, b)),
-                _ => bail!("plage de chapitres invalide : {part}"),
+                _ => bail!("invalid chapter range: {part}"),
             }
         })
         .collect()

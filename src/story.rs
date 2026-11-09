@@ -1,8 +1,8 @@
-//! Spin-off : un nouveau manga avec les persos d'un projet existant.
+//! Spin-off: a new manga using the characters of an existing project.
 //!
-//! `story.json` (écrit par Claude via la skill) décrit pages, cases, prompts et bulles.
-//! `manga story build` fait dessiner les cases par FLUX.2 [klein] (worker `draw`), compose les
-//! planches et écrit leur analyse : le projet se lit, se double et se rend comme un autre.
+//! `story.json` (written by Claude through the skill) describes pages, panels, prompts and bubbles.
+//! `manga story build` has FLUX.2 [klein] draw the panels (`draw` worker), composes the
+//! pages and writes their analysis: the project can then be read, dubbed and rendered like any other.
 
 use std::collections::BTreeMap;
 use std::f64::consts::SQRT_2;
@@ -31,11 +31,11 @@ const MARGIN: f64 = 70.0;
 const GUTTER: f64 = 28.0;
 const BORDER: u32 = 4;
 const FONT_PX: f32 = 32.0;
-/// Écart entre une bulle et le bord de sa case.
+/// Gap between a bubble and the edge of its panel.
 const INSET: f64 = 16.0;
-/// Surface de dessin d'une case : ~1 Mpx, la taille native du modèle.
+/// Drawing area of a panel: ~1 Mpx, the model's native size.
 const DRAW_AREA: f64 = 1024.0 * 1024.0;
-/// Références par case : chacune allonge la génération et la mémoire.
+/// References per panel: each one adds generation time and memory.
 const MAX_REFS: usize = 4;
 const NO_TEXT: &str = "No text, no letters, no speech bubbles, no sound effects, no panel borders";
 pub const DEFAULT_STYLE: &str = "Black and white manga panel, clean ink line art, screentone shading, expressive faces, dynamic composition";
@@ -53,7 +53,7 @@ pub struct Story {
     pub title: String,
     pub lang: String,
     pub direction: Direction,
-    /// Style graphique, en tête de chaque prompt.
+    /// Art style, placed at the start of every prompt.
     #[serde(default)]
     pub style: String,
     #[serde(default)]
@@ -63,28 +63,28 @@ pub struct Story {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Character {
-    /// Images de référence, relatives au projet (ou absolues).
+    /// Reference images, relative to the project (or absolute).
     #[serde(default)]
     pub refs: Vec<String>,
-    /// Description visuelle en anglais, ajoutée au prompt des cases où il apparaît.
+    /// Visual description in English, added to the prompt of the panels the character appears in.
     #[serde(default)]
     pub look: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StoryPage {
-    /// Rangées de haut en bas ; chaque rangée liste le poids (largeur relative) de ses cases.
+    /// Rows from top to bottom; each row lists the weight (relative width) of its panels.
     pub layout: Vec<Vec<f64>>,
-    /// Hauteurs relatives des rangées (vide = égales).
+    /// Relative row heights (empty = equal).
     #[serde(default)]
     pub heights: Vec<f64>,
-    /// Dans l'ordre de lecture, autant que de cases dans `layout`.
+    /// In reading order, as many as there are panels in `layout`.
     pub panels: Vec<StoryPanel>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StoryPanel {
-    /// Ce que montre la case, en anglais.
+    /// What the panel shows, in English.
     pub prompt: String,
     #[serde(default)]
     pub characters: Vec<String>,
@@ -92,7 +92,7 @@ pub struct StoryPanel {
     pub seed: u64,
     #[serde(default)]
     pub bubbles: Vec<Bubble>,
-    /// Cartouche du narrateur, en haut de la case côté début de lecture.
+    /// Narrator caption box, at the top of the panel on the side where reading starts.
     #[serde(default)]
     pub narration: Option<String>,
 }
@@ -101,7 +101,7 @@ pub struct StoryPanel {
 pub struct Bubble {
     pub speaker: Option<String>,
     pub text: String,
-    /// Défaut : les coins dans l'ordre de lecture.
+    /// Default: the corners in reading order.
     #[serde(default)]
     pub pos: Option<Pos>,
 }
@@ -119,40 +119,40 @@ pub enum Pos {
 
 impl Story {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = fs::read_to_string(path).with_context(|| format!("scénario absent : {} (manga story new …)", path.display()))?;
-        let story: Story = serde_json::from_str(&text).with_context(|| format!("scénario invalide : {}", path.display()))?;
+        let text = fs::read_to_string(path).with_context(|| format!("story not found: {} (manga story new …)", path.display()))?;
+        let story: Story = serde_json::from_str(&text).with_context(|| format!("invalid story: {}", path.display()))?;
         story.validate()?;
         Ok(story)
     }
 
     fn validate(&self) -> Result<()> {
-        ensure!(!self.pages.is_empty(), "le scénario n'a aucune page");
+        ensure!(!self.pages.is_empty(), "the story has no pages");
         for (i, page) in self.pages.iter().enumerate() {
             let n = i + 1;
             let cells: usize = page.layout.iter().map(Vec::len).sum();
-            ensure!(cells > 0, "page {n} : layout vide");
-            ensure!(cells == page.panels.len(), "page {n} : {cells} cases dans layout, {} dans panels", page.panels.len());
+            ensure!(cells > 0, "page {n}: empty layout");
+            ensure!(cells == page.panels.len(), "page {n}: {cells} panels in layout, {} in panels", page.panels.len());
             ensure!(
                 page.layout.iter().all(|r| !r.is_empty()) && page.layout.iter().flatten().all(|w| *w > 0.0),
-                "page {n} : rangée vide ou poids nul dans layout"
+                "page {n}: empty row or zero weight in layout"
             );
             ensure!(
                 page.heights.is_empty() || page.heights.len() == page.layout.len(),
-                "page {n} : {} hauteurs pour {} rangées",
+                "page {n}: {} heights for {} rows",
                 page.heights.len(),
                 page.layout.len()
             );
-            ensure!(page.heights.iter().all(|h| *h > 0.0), "page {n} : hauteur nulle dans heights");
+            ensure!(page.heights.iter().all(|h| *h > 0.0), "page {n}: zero height in heights");
             for (k, panel) in page.panels.iter().enumerate() {
                 for c in &panel.characters {
-                    ensure!(self.characters.contains_key(c), "page {n}, case {} : perso inconnu « {c} » (à déclarer dans characters)", k + 1);
+                    ensure!(self.characters.contains_key(c), "page {n}, panel {}: unknown character \"{c}\" (declare it in characters)", k + 1);
                 }
             }
         }
         Ok(())
     }
 
-    /// Références d'une case : une de chaque perso à tour de rôle, au plus MAX_REFS.
+    /// A panel's references: one per character in turn, at most MAX_REFS.
     fn panel_refs(&self, panel: &StoryPanel, root: &Path) -> Vec<(String, PathBuf)> {
         let lists: Vec<(&String, &Vec<String>)> = panel.characters.iter().filter_map(|c| self.characters.get(c).map(|ch| (c, &ch.refs))).collect();
         let mut out = Vec::new();
@@ -168,8 +168,8 @@ impl Story {
         out
     }
 
-    /// Style, contenu de la case, persos (avec leur image de référence) et interdiction du texte :
-    /// toutes les bulles sont posées par la composition.
+    /// Style, panel content, characters (with their reference image) and a no-text instruction:
+    /// all bubbles are added at composition time.
     pub fn panel_prompt(&self, panel: &StoryPanel, refs: &[(String, PathBuf)]) -> String {
         let style = if self.style.trim().is_empty() { DEFAULT_STYLE } else { self.style.trim() };
         let mut parts = vec![style.to_string(), panel.prompt.trim().to_string()];
@@ -190,13 +190,13 @@ impl Story {
     }
 }
 
-/// Identifiant d'une case, le même que celui du plan dans la timeline : `p0002_k1`.
+/// Id of a panel, the same as its shot in the timeline: `p0002_k1`.
 pub fn panel_id(page: usize, panel: usize) -> String {
     format!("p{:04}_k{panel}", page + 1)
 }
 
-/// Cases de la page dans l'ordre de lecture : rangées de haut en bas, et dans chaque rangée de
-/// droite à gauche (rtl) ou de gauche à droite (ltr).
+/// The page's panels in reading order: rows from top to bottom, and within each row from
+/// right to left (rtl) or left to right (ltr).
 pub fn layout(page: &StoryPage, direction: Direction) -> Vec<BBox> {
     let (w, h) = (PAGE_W as f64, PAGE_H as f64);
     let rows = page.layout.len();
@@ -214,7 +214,7 @@ pub fn layout(page: &StoryPage, direction: Direction) -> Vec<BBox> {
             let pw = usable_w * cw / total_w;
             let (x1, x2) = match direction {
                 Direction::Ltr => (x, x + pw),
-                // Même découpe en miroir : la première case est à droite.
+                // Same layout mirrored: the first panel is on the right.
                 Direction::Rtl => (w - x - pw, w - x),
             };
             out.push([x1.round(), y.round(), x2.round(), (y + ph).round()]);
@@ -225,7 +225,7 @@ pub fn layout(page: &StoryPage, direction: Direction) -> Vec<BBox> {
     out
 }
 
-/// Taille de dessin d'une case : son ratio, ~1 Mpx, multiples de 16.
+/// Drawing size of a panel: its aspect ratio, ~1 Mpx, multiples of 16.
 pub fn draw_size(bbox: &BBox) -> (u32, u32) {
     let (w, h) = (bbox[2] - bbox[0], bbox[3] - bbox[1]);
     let s = (DRAW_AREA / (w * h)).sqrt();
@@ -242,10 +242,10 @@ fn default_pos(i: usize, direction: Direction) -> Pos {
     order[i % order.len()]
 }
 
-/// Ellipse d'une bulle autour d'un bloc de texte tw×th : centre et rayons. Placée dans la case
-/// selon `pos`, centrée si elle n'y tient pas, et toujours dans la page.
+/// Ellipse of a bubble around a tw×th text block: center and radii. Placed in the panel
+/// according to `pos`, centered if it doesn't fit, and always inside the page.
 pub fn bubble_shape(tw: f64, th: f64, panel: &BBox, pos: Pos) -> ((f64, f64), f64, f64) {
-    // Une ellipse qui contient un rectangle a des rayons √2 fois ses demi-côtés.
+    // An ellipse containing a rectangle has radii √2 times its half-sides.
     let rx = tw / 2.0 * SQRT_2 + 10.0;
     let ry = th / 2.0 * SQRT_2 + 10.0;
     let (left, right) = (panel[0] + INSET + rx, panel[2] - INSET - rx);
@@ -276,8 +276,8 @@ fn overlaps(a: &BBox, b: &BBox) -> bool {
     a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 }
 
-/// Décale verticalement une bulle qui en chevauche une déjà posée dans la case : sous elle si
-/// la bulle est en haut, au-dessus si elle est en bas. Renvoie le nouveau centre vertical.
+/// Moves a bubble vertically when it overlaps one already placed in the panel: below it if
+/// the bubble is at the top, above it if at the bottom. Returns the new vertical center.
 pub fn avoid(center: (f64, f64), rx: f64, ry: f64, panel: &BBox, placed: &[BBox]) -> f64 {
     let (cx, mut cy) = center;
     let down = cy <= (panel[1] + panel[3]) / 2.0;
@@ -289,7 +289,7 @@ pub fn avoid(center: (f64, f64), rx: f64, ry: f64, panel: &BBox, placed: &[BBox]
     cy
 }
 
-/// Queue de bulle : un triangle qui part du centre et pointe vers le milieu de la case.
+/// Bubble tail: a triangle from the center pointing towards the middle of the panel.
 fn tail(center: (f64, f64), rx: f64, ry: f64, panel: &BBox, shrink: f64) -> Vec<Point<i32>> {
     let (cx, cy) = center;
     let (mut dx, mut dy) = ((panel[0] + panel[2]) / 2.0 - cx, (panel[1] + panel[3]) / 2.0 - cy);
@@ -299,7 +299,7 @@ fn tail(center: (f64, f64), rx: f64, ry: f64, panel: &BBox, shrink: f64) -> Vec<
     } else {
         (dx, dy) = (dx / len, dy / len);
     }
-    // Distance du centre au bord de l'ellipse dans cette direction.
+    // Distance from the center to the edge of the ellipse in this direction.
     let edge = 1.0 / ((dx / rx).powi(2) + (dy / ry).powi(2)).sqrt();
     let reach = edge + 0.6 * ry.min(rx).max(30.0) - shrink * 2.0;
     let tip = ((cx + dx * reach).clamp(panel[0], panel[2]), (cy + dy * reach).clamp(panel[1], panel[3]));
@@ -336,7 +336,7 @@ fn draw_bubble(canvas: &mut RgbImage, l: &Lettering, text: &str, panel: &BBox, p
     let ((cx, cy), rx, ry) = bubble_shape(tw, th, panel, pos);
     let cy = avoid((cx, cy), rx, ry, panel, placed);
     let c = (cx.round() as i32, cy.round() as i32);
-    // Contour noir, puis intérieur blanc : la queue se fond dans la bulle.
+    // Black outline, then white interior: the tail blends into the bubble.
     let stroke = 3.0;
     draw_polygon_mut(canvas, &tail((cx, cy), rx, ry, panel, 0.0), BLACK);
     draw_filled_ellipse_mut(canvas, c, (rx + stroke) as i32, (ry + stroke) as i32, BLACK);
@@ -350,7 +350,7 @@ fn draw_bubble(canvas: &mut RgbImage, l: &Lettering, text: &str, panel: &BBox, p
     [cx - rx, cy - ry, cx + rx, cy + ry]
 }
 
-/// Cartouche collé au coin de la case où commence la lecture.
+/// Caption box pinned to the panel corner where reading starts.
 fn draw_narration(canvas: &mut RgbImage, l: &Lettering, text: &str, panel: &BBox, direction: Direction) -> BBox {
     let pad = 14.0;
     let (lines, tw, th) = l.lines(text, ((panel[2] - panel[0]) * 0.5).clamp(200.0, 600.0));
@@ -368,8 +368,8 @@ fn draw_narration(canvas: &mut RgbImage, l: &Lettering, text: &str, panel: &BBox
     [x, y, x + w, y + h]
 }
 
-/// Compose une planche : cases (dessinées, ou grises si pas encore), cadres, cartouches, bulles.
-/// Renvoie l'image et son analyse, qui est exacte puisqu'on a tout posé soi-même.
+/// Composes a page: panels (drawn, or gray if not yet), frames, caption boxes, bubbles.
+/// Returns the image and its analysis, which is exact since everything was placed here.
 pub fn compose(page: &StoryPage, rects: &[BBox], images: &[Option<DynamicImage>], direction: Direction, file: &str, font: &FontVec) -> (RgbImage, PageAnalysis) {
     let l = Lettering { font, scale: PxScale::from(FONT_PX) };
     let stem = crate::project::stem(file);
@@ -413,22 +413,22 @@ pub fn compose(page: &StoryPage, rects: &[BBox], images: &[Option<DynamicImage>]
 
 pub fn load_font() -> Result<FontVec> {
     let path = caption_font();
-    let bytes = fs::read(&path).with_context(|| format!("police introuvable : {} (MANGA_FONT=…)", path.display()))?;
-    FontVec::try_from_vec(bytes).context("police illisible")
+    let bytes = fs::read(&path).with_context(|| format!("font not found: {} (MANGA_FONT=…)", path.display()))?;
+    FontVec::try_from_vec(bytes).context("unreadable font")
 }
 
-/// Crée le spin-off : `story.json` d'exemple, persos de `source` copiés dans `refs/`.
-/// La banque nommée (`characters/<Nom>.png`) d'abord, sinon les persos de `manga characters`.
+/// Creates the spin-off: an example `story.json`, with the characters of `source` copied into `refs/`.
+/// The named bank (`characters/<Name>.png`) first, otherwise the characters from `manga characters`.
 pub fn new(name: &str, source: &Project, lang: Option<String>, direction: Option<Direction>) -> Result<PathBuf> {
     let root = Project::dir(name);
     let path = root.join("story.json");
-    ensure!(root != source.root, "le spin-off doit être un nouveau projet, distinct de {}", source.cfg.name);
-    ensure!(!path.exists(), "{} existe déjà : modifie-le, ou supprime-le pour repartir de zéro", path.display());
+    ensure!(root != source.root, "the spin-off must be a new project, separate from {}", source.cfg.name);
+    ensure!(!path.exists(), "{} already exists: edit it, or delete it to start over", path.display());
     fs::create_dir_all(root.join("refs"))?;
     let mut cast = BTreeMap::new();
     let mut add = |name: String, src: &Path| -> Result<()> {
         let file = format!("refs/{}.png", slugify(&name));
-        image::open(src).with_context(|| format!("image illisible : {}", src.display()))?.save(root.join(&file))?;
+        image::open(src).with_context(|| format!("unreadable image: {}", src.display()))?.save(root.join(&file))?;
         cast.insert(name, Character { refs: vec![file], look: String::new() });
         Ok(())
     };
@@ -473,9 +473,9 @@ pub fn new(name: &str, source: &Project, lang: Option<String>, direction: Option
 }
 
 pub struct BuildOptions {
-    /// Ne dessine que ces pages (1 = première) ; vide = toutes. Les autres restent en l'état.
+    /// Only draw these pages (1 = first); empty = all. The others stay as they are.
     pub pages: Vec<usize>,
-    /// Faux : compose sans appeler le modèle, les cases pas encore dessinées restent grises.
+    /// False: compose without calling the model; panels not drawn yet stay gray.
     pub draw: bool,
     pub steps: u32,
 }
@@ -498,8 +498,8 @@ struct DrawJob {
     items: Vec<DrawItem>,
 }
 
-/// Dessine les cases qui manquent (cache par contenu dans `panels/`), compose les planches,
-/// écrit `pages/`, `analysis/` et `project.toml`. Renvoie le projet et le nombre de cases grises.
+/// Draws the missing panels (content-addressed cache in `panels/`), composes the pages,
+/// writes `pages/`, `analysis/` and `project.toml`. Returns the project and the number of gray panels.
 pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
     let root = Project::dir(name);
     let story = Story::load(&root.join("story.json"))?;
@@ -516,7 +516,7 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
             let mut h = Sha256::new();
             h.update(format!("{prompt}|{width}x{height}|{}|{}", panel.seed, opts.steps));
             for (_, r) in &refs {
-                h.update(fs::read(r).with_context(|| format!("{id} : référence introuvable {}", r.display()))?);
+                h.update(fs::read(r).with_context(|| format!("{id}: reference not found: {}", r.display()))?);
             }
             let out = root.join(format!("panels/{}.png", &hex::encode(h.finalize())[..16]));
             if opts.draw && !out.exists() && (opts.pages.is_empty() || opts.pages.contains(&(i + 1))) {
@@ -539,17 +539,17 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
         let model = model_dir();
         if !model.exists() {
             bail!(
-                "modèle de dessin absent ({}). Installe-le avec `manga models install flux2` (~15 Go téléchargés, ~5 Go gardés), \
-                 ou compose sans dessiner avec --no-draw",
+                "drawing model missing ({}). Install it with `manga models install flux2` (~15 GB downloaded, ~5 GB kept), \
+                 or compose without drawing using --no-draw",
                 model.display()
             );
         }
-        println!("{} cases à dessiner avec FLUX.2 [klein]", items.len());
+        println!("{} panels to draw with FLUX.2 [klein]", items.len());
         let job = DrawJob { model_dir: model.to_string_lossy().into(), items };
         worker::run_in(worker::Env::Draw, "draw", &job, &root.join("work/draw_job.json"))?;
     }
 
-    // Les planches et leur analyse se déduisent entièrement du scénario : on les réécrit.
+    // Pages and their analysis derive entirely from the story: rewrite them.
     let font = load_font()?;
     for dir in ["pages", "analysis"] {
         if root.join(dir).exists() {
@@ -609,14 +609,14 @@ mod tests {
         let ltr = layout(&p, Direction::Ltr);
         let rtl = layout(&p, Direction::Rtl);
         assert_eq!(ltr.len(), 3);
-        // Rangée pleine largeur, de marge à marge.
+        // Full-width row, margin to margin.
         assert_eq!(ltr[0], [MARGIN, MARGIN, PAGE_W as f64 - MARGIN, ltr[0][3]]);
         assert_eq!(ltr[2][3], PAGE_H as f64 - MARGIN);
-        // ltr : la première case de la rangée est à gauche ; rtl : à droite, même largeur.
+        // ltr: the row's first panel is on the left; rtl: on the right, same width.
         assert!(ltr[1][0] < ltr[2][0] && rtl[1][0] > rtl[2][0]);
         assert_eq!(ltr[1][2] - ltr[1][0], rtl[1][2] - rtl[1][0]);
         assert!(ltr[1][2] - ltr[1][0] > ltr[2][2] - ltr[2][0]);
-        // Gouttières entre rangées et entre cases.
+        // Gutters between rows and between panels.
         assert_eq!(ltr[1][1] - ltr[0][3], GUTTER);
         assert_eq!((ltr[2][0] - ltr[1][2]).round(), GUTTER);
     }
@@ -638,11 +638,11 @@ mod tests {
         assert!(cx > 450.0 && cy < 400.0);
         let ((cx, cy), _, _) = bubble_shape(200.0, 80.0, &panel, Pos::BottomLeft);
         assert!(cx < 450.0 && cy > 400.0);
-        // Trop large pour la case : centrée (ici plus large que la page : au milieu), toujours en haut.
+        // Too wide for the panel: centered (here wider than the page: in the middle), still at the top.
         let ((cx, cy), _, ry) = bubble_shape(1400.0, 80.0, &[0.0, 0.0, 300.0, 300.0], Pos::TopLeft);
         assert_eq!(cx, PAGE_W as f64 / 2.0);
         assert_eq!(cy - ry, INSET);
-        // Trop haute : centrée verticalement dans la case.
+        // Too tall: centered vertically in the panel.
         let ((_, cy), _, _) = bubble_shape(100.0, 400.0, &[0.0, 1000.0, 600.0, 1300.0], Pos::Top);
         assert_eq!(cy, 1150.0);
     }
@@ -651,26 +651,26 @@ mod tests {
     fn bubbles_do_not_overlap() {
         let panel = [0.0, 0.0, 400.0, 900.0];
         let first = [200.0, 16.0, 390.0, 120.0];
-        // En haut : descend sous la bulle déjà posée.
+        // At the top: moves down below the bubble already placed.
         let cy = avoid((200.0, 70.0), 120.0, 54.0, &panel, &[first]);
         assert_eq!(cy - 54.0, first[3] + 8.0);
-        // En bas : remonte au-dessus.
+        // At the bottom: moves up above it.
         let low = [100.0, 700.0, 300.0, 880.0];
         let cy = avoid((200.0, 800.0), 90.0, 50.0, &panel, &[low]);
         assert_eq!(cy + 50.0, low[1] - 8.0);
-        // Rien à éviter : inchangé.
+        // Nothing to avoid: unchanged.
         assert_eq!(avoid((200.0, 400.0), 90.0, 50.0, &panel, &[first, low]), 400.0);
     }
 
     #[test]
     fn validation_errors() {
         let ok = r#"{"title":"t","lang":"fr","direction":"rtl","characters":{"A":{"refs":[]}},
-            "pages":[{"layout":[[1],[1,1]],"panels":[{"prompt":"a"},{"prompt":"b","characters":["A"]},{"prompt":"c","bubbles":[{"speaker":"A","text":"Salut","pos":"top-left"}]}]}]}"#;
+            "pages":[{"layout":[[1],[1,1]],"panels":[{"prompt":"a"},{"prompt":"b","characters":["A"]},{"prompt":"c","bubbles":[{"speaker":"A","text":"Hi","pos":"top-left"}]}]}]}"#;
         story(ok).unwrap();
         let err = story(&ok.replace("[[1],[1,1]]", "[[1],[1]]")).unwrap_err().to_string();
-        assert!(err.contains("2 cases dans layout, 3 dans panels"), "{err}");
+        assert!(err.contains("2 panels in layout, 3 in panels"), "{err}");
         let err = story(&ok.replace(r#"["A"]"#, r#"["B"]"#)).unwrap_err().to_string();
-        assert!(err.contains("perso inconnu « B »"), "{err}");
+        assert!(err.contains("unknown character \"B\""), "{err}");
         assert!(story(&ok.replace("top-left", "middle")).is_err());
     }
 
@@ -708,14 +708,14 @@ mod tests {
         assert_eq!(analysis.texts[1].panel, Some(1));
         for t in &analysis.texts {
             let r = rects[t.panel.unwrap()];
-            assert!(t.bbox[0] >= r[0] && t.bbox[2] <= r[2] && t.bbox[1] >= r[1] && t.bbox[3] <= r[3], "{t:?} hors de {r:?}");
+            assert!(t.bbox[0] >= r[0] && t.bbox[2] <= r[2] && t.bbox[1] >= r[1] && t.bbox[3] <= r[3], "{t:?} outside {r:?}");
         }
-        // La case dessinée est noire, la case en attente grise, le fond blanc.
+        // The drawn panel is black, the pending panel gray, the background white.
         let at = |b: BBox| *img.get_pixel(((b[0] + b[2]) / 2.0) as u32, (b[3] - 20.0) as u32);
         assert_eq!(at(rects[0]), BLACK);
         assert_eq!(at(rects[2]), PENDING);
         assert_eq!(*img.get_pixel(5, 5), WHITE);
-        // L'analyse se relit comme celle de Magi.
+        // The analysis reloads just like Magi's.
         let dir = tempfile::tempdir().unwrap();
         analysis.save(&dir.path().join("0001.json")).unwrap();
         PageAnalysis::load(&dir.path().join("0001.json")).unwrap();

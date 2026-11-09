@@ -1,4 +1,4 @@
-"""OCR local : Apple Vision pour toutes les langues, manga-ocr pour le japonais."""
+"""Local OCR: Apple Vision for all languages, manga-ocr for Japanese."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ VISION_LANGS = {
 
 
 def vision_observations(image: Image.Image, lang: str) -> list[tuple[str, tuple[float, float, float, float]]]:
-    """Lignes reconnues par Vision : (texte, bbox en pixels x1, y1, x2, y2)."""
+    """Lines recognized by Vision: (text, bbox in pixels x1, y1, x2, y2)."""
     import Vision
     from Foundation import NSData
 
@@ -30,7 +30,7 @@ def vision_observations(image: Image.Image, lang: str) -> list[tuple[str, tuple[
     request.setRecognitionLanguages_([VISION_LANGS.get(lang, lang)])
     ok, err = handler.performRequests_error_([request], None)
     if not ok:
-        raise RuntimeError(f"Vision a échoué : {err}")
+        raise RuntimeError(f"Vision failed: {err}")
     w, h = image.size
     out = []
     for obs in request.results() or []:
@@ -39,7 +39,7 @@ def vision_observations(image: Image.Image, lang: str) -> list[tuple[str, tuple[
             continue
         box = obs.boundingBox()
         x, y, bw, bh = box.origin.x, box.origin.y, box.size.width, box.size.height
-        # Vision : origine en bas à gauche, coordonnées normalisées.
+        # Vision: origin at bottom left, normalized coordinates.
         out.append((str(cand[0].string()), (x * w, (1 - y - bh) * h, (x + bw) * w, (1 - y) * h)))
     return out
 
@@ -61,7 +61,7 @@ def join_lines(lines: list[str]) -> str:
 
 LATIN_LANGS = {"fr", "en", "es", "de", "it", "pt", "vi"}
 
-# Le lettrage manga en capitales perd souvent l'apostrophe à l'OCR.
+# All-caps manga lettering often loses the apostrophe in OCR.
 EN_CONTRACTIONS = {
     "DONT": "DON'T", "IVE": "I'VE", "IM": "I'M", "ILL": "I'LL", "CANT": "CAN'T", "DIDNT": "DIDN'T",
     "ISNT": "ISN'T", "WASNT": "WASN'T", "COULDNT": "COULDN'T", "WOULDNT": "WOULDN'T",
@@ -72,10 +72,10 @@ EN_CONTRACTIONS = {
 
 
 def clean(text: str, lang: str) -> str:
-    """Corrige les erreurs typiques de l'OCR sur du lettrage en capitales."""
+    """Fix typical OCR errors on all-caps lettering."""
     letters = [c for c in text if c.isalpha()]
     if letters and sum(c.isupper() for c in letters) / len(letters) > 0.7:
-        # « YoU », « You » : dans un texte en capitales, les minuscules sont des erreurs d'OCR.
+        # "YoU", "You": in all-caps text, lowercase letters are OCR errors.
         text = text.upper()
         if lang == "en":
             text = re.sub(r"\b[A-Z]+\b", lambda m: EN_CONTRACTIONS.get(m.group(0), m.group(0)), text)
@@ -83,7 +83,7 @@ def clean(text: str, lang: str) -> str:
 
 
 def plausible(text: str, lang: str) -> bool:
-    """Faux pour un texte dont l'écriture ne correspond pas à la langue (bruit d'OCR)."""
+    """False for text whose script does not match the language (OCR noise)."""
     letters = [c for c in text if c.isalpha()]
     if not letters:
         return False
@@ -103,12 +103,12 @@ class Ocr:
 
                 self.manga_ocr = MangaOcr()
             except ImportError:
-                print("manga-ocr absent (uv sync --extra ja) : Vision utilisé pour le japonais", file=sys.stderr)
+                print("manga-ocr not installed (uv sync --extra ja): using Vision for Japanese", file=sys.stderr)
 
     def read(self, crop: Image.Image) -> str:
         if self.manga_ocr is not None:
             return self.manga_ocr(crop).strip()
-        # Vision lit mal le texte minuscule : on agrandit les petites bulles.
+        # Vision reads tiny text poorly: upscale small bubbles.
         if min(crop.size) < 160:
             scale = 160 / min(crop.size)
             crop = crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)

@@ -32,6 +32,8 @@ pub const PAGE_H: u32 = 2120;
 const MARGIN: f64 = 70.0;
 const GUTTER: f64 = 28.0;
 const BORDER: u32 = 4;
+/// Below this, a panel can neither be framed nor drawn.
+const MIN_PANEL: f64 = 32.0;
 const FONT_PX: f32 = 32.0;
 /// Gap between a bubble and the edge of its panel.
 const INSET: f64 = 16.0;
@@ -145,6 +147,10 @@ impl Story {
                 page.layout.len()
             );
             ensure!(page.heights.iter().all(|h| *h > 0.0), "page {n}: zero height in heights");
+            ensure!(
+                layout(page, self.direction).iter().all(|r| r[2] - r[0] >= MIN_PANEL && r[3] - r[1] >= MIN_PANEL),
+                "page {n}: a panel is under {MIN_PANEL} px: use fewer rows or less extreme weights in layout and heights"
+            );
             for (k, panel) in page.panels.iter().enumerate() {
                 for c in &panel.characters {
                     ensure!(self.characters.contains_key(c), "page {n}, panel {}: unknown character \"{c}\" (declare it in characters)", k + 1);
@@ -424,8 +430,11 @@ pub fn load_font() -> Result<FontVec> {
 pub fn new(name: &str, source: &Project, lang: Option<String>, direction: Option<Direction>) -> Result<PathBuf> {
     let root = Project::dir(name);
     let path = root.join("story.json");
+    ensure!(!slugify(name).is_empty(), "\"{name}\" has no letter or digit to name a project folder");
     ensure!(root != source.root, "the spin-off must be a new project, separate from {}", source.cfg.name);
     ensure!(!path.exists(), "{} already exists: edit it, or delete it to start over", path.display());
+    // `story build` rewrites pages/ and analysis/: only refs/ marks a project as a spin-off.
+    ensure!(root.join("refs").exists() || !root.join("project.toml").exists(), "project {} already exists and is not a spin-off: pick another name", slugify(name));
     fs::create_dir_all(root.join("refs"))?;
     let mut cast = BTreeMap::new();
     let mut add = |name: String, src: &Path| -> Result<()> {
@@ -520,6 +529,9 @@ struct OpenRouterDrawJob<'a> {
 pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
     let root = Project::dir(name);
     let story = Story::load(&root.join("story.json"))?;
+    if let Some(p) = opts.pages.iter().find(|p| **p == 0 || **p > story.pages.len()) {
+        bail!("no page {p}: the story has {} pages", story.pages.len());
+    }
     let mut plans = Vec::new();
     let mut items = Vec::new();
     for (i, page) in story.pages.iter().enumerate() {
@@ -715,6 +727,18 @@ mod tests {
         let err = story(&ok.replace(r#"["A"]"#, r#"["B"]"#)).unwrap_err().to_string();
         assert!(err.contains("unknown character \"B\""), "{err}");
         assert!(story(&ok.replace("top-left", "middle")).is_err());
+    }
+
+    #[test]
+    fn degenerate_panels_are_refused() {
+        let check = |page: StoryPage| Story { title: "t".into(), lang: "en".into(), direction: Direction::Ltr, style: String::new(), characters: BTreeMap::new(), pages: vec![page] }.validate();
+        check(page(vec![vec![1.0], vec![2.0, 1.0]])).unwrap();
+        let err = check(page(vec![vec![1_000_000.0, 1.0]])).unwrap_err().to_string();
+        assert!(err.contains("under 32 px"), "{err}");
+        assert!(check(page(vec![vec![1.0]; 80])).is_err());
+        let mut tall = page(vec![vec![1.0], vec![1.0]]);
+        tall.heights = vec![100_000.0, 1.0];
+        assert!(check(tall).is_err());
     }
 
     #[test]

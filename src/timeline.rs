@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::analysis::{BBox, PageAnalysis, TextBox, area};
 use crate::project::{Direction, Project, stem};
-use crate::voice::AudioIndex;
+use crate::voice::{AudioIndex, Cast};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -232,7 +232,8 @@ pub fn run(project: &Project, opts: &Options, reset: bool) -> Result<Timeline> {
         .iter()
         .map(|p| PageAnalysis::load(&project.analysis_path(p)))
         .collect::<Result<Vec<_>>>()?;
-    let audio = AudioIndex::load(project);
+    // Clips stay on disk for when voices are turned back on, but `enabled = false` means no voices.
+    let audio = if Cast::load(project)?.enabled { AudioIndex::load(project) } else { AudioIndex::default() };
     let previous = if reset { None } else { Timeline::load(project).ok() };
     let timeline = build(project, &analyses, &audio, opts, previous.as_ref());
     timeline.save(project)?;

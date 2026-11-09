@@ -21,7 +21,7 @@ impl CaptionStyle {
         let bytes = std::fs::read(font_path).with_context(|| format!("font not found: {} (MANGA_FONT=…)", font_path.display()))?;
         Ok(Self {
             font: FontVec::try_from_vec(bytes).context("unreadable font")?,
-            size: frame_height as f32 * 0.042,
+            size: if frame_height > frame_width { frame_width as f32 * 0.056 } else { frame_height as f32 * 0.042 },
             max_width: (frame_width as f32 * 0.8) as u32,
             show_speaker,
         })

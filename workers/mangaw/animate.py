@@ -67,7 +67,7 @@ def video_request(model: str, item: dict, caps: dict) -> dict:
     }
     body.update({k: v for k, v in optional.items() if v is not None})
     if caps.get("generate_audio"):
-        body["generate_audio"] = False  # The render discards clip audio: do not pay for it.
+        body["generate_audio"] = bool(item.get("audio"))  # Without it, do not pay for a sound track.
     if caps.get("seed"):
         body["seed"] = item["seed"]
     return body
@@ -98,16 +98,17 @@ def wait_for_video(client, job_id: str, interval: float, timeout: float) -> None
 
 
 def fit_clip(source: Path, item: dict) -> None:
-    """Same output as the local path: the requested size, H.264, no audio."""
+    """Same output as the local path: the requested size, H.264, and sound only if it was asked for."""
     from .openrouter import Error
 
     out = Path(item["out"])
     tmp = out.with_suffix(".tmp.mp4")
     w, h = item["width"], item["height"]
     cmd = [
-        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-an",
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source),
         "-vf", f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", str(tmp),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+        *(["-c:a", "aac", "-b:a", "192k"] if item.get("audio") else ["-an"]), str(tmp),
     ]
     try:
         done = subprocess.run(cmd, capture_output=True, text=True)
@@ -129,6 +130,8 @@ def run_openrouter(job: dict) -> None:
         frames = caps.get("supported_frame_images")
         if frames is not None and "first_frame" not in frames:
             raise Error(f"{job['model']} cannot start from an image: pick an image-to-video model, or render with --no-animate")
+        if caps.get("generate_audio") is False and any(i.get("audio") for i in items):
+            raise Error(f"{job['model']} cannot generate sound: pick a model whose generate_audio is true, or use --no-sfx")
         for n, item in enumerate(items, 1):
             out = Path(item["out"])
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +162,7 @@ def run_connect(job: dict) -> None:
             print(f"[{n}/{len(items)}] {item['id']} submitted to {job['model']} on {job['provider']}", file=sys.stderr)
             source = out.with_suffix(".src.mp4")
             try:
-                request = {k: item[k] for k in ("id", "image", "prompt", "width", "height", "frames", "seed")}
+                request = {k: item[k] for k in ("id", "image", "prompt", "width", "height", "frames", "seed")} | {"audio": bool(item.get("audio"))}
                 generate(job, "video", request, source, poll_interval_s=job["poll_interval_s"], poll_timeout_s=job["poll_timeout_s"])
                 fit_clip(source, item)
             finally:

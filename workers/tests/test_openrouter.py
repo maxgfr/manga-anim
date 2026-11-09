@@ -246,6 +246,21 @@ class Video(Case):
         item = {"image": str(image), "prompt": "wind", "width": 640, "height": 352, "frames": 73, "seed": 1}
         self.assertEqual(animate.video_request("acme/video", item, {"supported_durations": [3, 4]})["duration"], 3)
 
+    def test_sound_is_requested_and_kept(self) -> None:
+        job = self.job()
+        job["items"][0]["audio"] = True
+        server = self.mock(self.routes())
+        self.assertEqual(self.run_worker("animate", job, server).returncode, 0)
+        self.assertTrue(server.bodies("POST", "/videos")[0]["generate_audio"])
+        self.assertIn("audio", [s["codec_type"] for s in self.probe(Path(job["items"][0]["out"]))])
+
+    def test_a_silent_model_is_refused_before_billing(self) -> None:
+        job = self.job()
+        job["items"][0]["audio"] = True
+        server = self.mock(self.routes(caps={**CAPS, "generate_audio": False}))
+        self.assert_one_line_error(self.run_worker("animate", job, server), "cannot generate sound", "--no-sfx")
+        self.assertEqual(server.count("POST", "/videos"), 0)
+
     def test_only_declared_parameters_are_sent(self) -> None:
         caps = {"id": "acme/video", "supported_durations": None, "supported_resolutions": None, "supported_aspect_ratios": None, "supported_frame_images": None, "generate_audio": None, "seed": None}
         server = self.mock(self.routes(caps=caps))

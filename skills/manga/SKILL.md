@@ -177,23 +177,29 @@ Shortcut: `manga run <name>` chains analysis, voices, timeline and render.
 
 ## Anime: the last step
 
-`manga anime` turns a project that already has its analysis, voices and timeline into an episode: each panel is repainted as a clean 16:9 key image without bubbles or lettering, animated for as long as its shot lasts, and rendered full-frame with the voices and subtitles.
+`manga anime` turns a project that already has its analysis, voices and timeline into an episode: each panel is repainted as a clean key image without bubbles or lettering, animated with its sound effects for as long as its shot lasts, and rendered full-frame with the voices and subtitles.
 
 ```sh
 manga anime <name> --backend openrouter --image-model <id> --video-model <id> \
-  [--style color|bw] [--look "Kit: red hair, green coat"] [--shots 3,4] [--key-shots-only] \
-  [--keyframes-only] [--max-seconds 30] [--dry-run]
+  [--style color|bw] [--art "..."] [--look "Kit: red hair, green coat"] [--style-from <project>] \
+  [--shots 3,4] [--key-shots-only] [--keyframes-only] [--no-sfx] \
+  [--format vertical] [--max-duration 60] [--split] [--max-seconds 30] [--dry-run]
 ```
 
 Run it in this order, and follow Budget above. Stop and ask when a step looks wrong.
 
-1. **Models.** `manga models search image` for a model that accepts reference images, `manga models search video` for one that starts from a first frame.
-2. **Direction.** Read every panel yourself. Write a `--look` line with the colors of each character, and give each shot a short motion prompt with `manga animate <name> <shot> --prompt "..."`. That also marks the shot; add `--key-shots-only` to the run if only those should move. With API keys only, `--direct-provider` and `--direct-model` write the missing prompts instead; manual prompts are kept.
+1. **Models.** `manga models search image` for a model that accepts reference images, `manga models search video` for one that starts from a first frame and whose `generate_audio` is true, otherwise there are no sound effects.
+2. **Direction.** Read every panel yourself. Write a `--look` line with the colors of each character, and give each shot a short motion prompt, its sound effects and who is visible with `manga animate <name> <shot> --prompt "..." --sound "..." --characters Kit,Ann`. Turn every onomatopoeia printed in the panel into the real sound (KNOCK becomes "knuckles knocking on a door"): the analysis filters them out, so reading the panels is the only way to catch them. That also marks the shot; add `--key-shots-only` to the run if only those should move. With API keys only, `--direct-provider` and `--direct-model` write what is missing instead; what was written by hand is kept.
 3. **Estimate.** `--dry-run` gives the images and the seconds of video. Multiply by the current prices, state the total and always pass `--max-seconds`.
 4. **One key image.** Run with `--keyframes-only --shots <one shot>` and look at `keyframes/`. Check that no bubble or letter is left and that the characters are still themselves. Then run the rest with `--keyframes-only`.
 5. **One clip.** Run `--shots <one shot>`, look at sampled frames, then run everything. Finished images and clips stay cached.
+6. **Fix what has no sound.** The run ends by listing the shots without sound effects and why: a still image has no clip, and a model can return a silent one. For each, give it a `--sound` and run again. Only that clip is paid for. You cannot hear the result: say so, and ask the user to listen.
 
-The colors are invented by the model and can drift between shots: the `--look` line limits this but does not remove it. A video model also invents what the first frame hides: a character raising a bowed head can gain glasses, so write prompts that keep a hidden face hidden. There is no exact lip sync, music or sound effects yet. A shot longer than the model's longest clip holds its last image.
+**What stays the same.** The first run writes `anime.toml`, the project's style bible: the art style, pinned to one era, and the `--look` notes. The first shot drawn becomes `anime/<style>/reference.png`, and every other image is drawn to match it, so choose a good first shot. Each character with a portrait in `characters/<Name>.png` gets one remembered face in `anime/<style>/faces/`, drawn once. Flags are only needed to change these. Delete the reference image to choose another. For the next episode, pass `--style-from <previous project>` so it keeps the same look and faces.
+
+**Vertical.** `--format vertical` generates images and clips in 9:16 for TikTok, Shorts and Reels. `--max-duration 60` keeps at most that length, ending on a whole shot, and only pays for what is kept; add `--split` to get every shot as numbered parts. `manga render --format vertical` does the same for the reading video, for free.
+
+A video model also invents what the first frame hides: a character raising a bowed head can gain glasses, so write prompts that keep a hidden face hidden. Mouths follow timing cues in the prompt, which is not exact lip sync, and there is no music. Sound effects come from the video model, so they are only as good as it is. A shot longer than the model's longest clip holds its last image.
 
 Recoloring and animating someone's work goes further than dubbing it: check the rights first (see Rights above).
 

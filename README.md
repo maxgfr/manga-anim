@@ -32,6 +32,9 @@ instead of local models.
 - A vision model can write each shot's motion prompt (`--direct-provider`, `--direct-model`).
 - The skill installs with `npx skills add maxgfr/manga-anim --skill manga -a claude-code`.
 - A clip is no longer billed one second too long (a 3 s clip was requested as 4 s).
+- Sound effects: `manga anime` keeps the sound the video model generates with the picture, guided by `--sound`, under the voices, and ends by listing the shots that have none.
+- A style bible: `anime.toml` pins one art style, a reference image and one remembered face per character, across runs and episodes (`--style-from`).
+- Vertical output for TikTok, Shorts and Reels, with a maximum length and numbered parts: `--format vertical --max-duration 60 --split`, on `anime` and `render`.
 
 ## Commands
 
@@ -46,9 +49,9 @@ instead of local models.
 | `manga read` | Opens the web reader to check and correct the analysis. |
 | `manga voice` | Generates one voice per character from `cast.toml`. |
 | `manga timeline` | Builds `timeline.json`, the editable cut. |
-| `manga animate` | Marks shots for AI animation, with a motion prompt. |
-| `manga render` | Renders the reading video (`--style scroll\|panels`). |
-| `manga anime` | Renders an anime episode: clean 16:9 key images, clips and a full-frame edit. |
+| `manga animate` | Marks shots for AI animation, with a motion prompt, sound effects and the characters in view. |
+| `manga render` | Renders the reading video (`--style scroll\|panels`, `--format vertical`, `--max-duration`, `--split`). |
+| `manga anime` | Renders an anime episode: clean key images, clips with sound effects and a full-frame edit, landscape or vertical. |
 | `manga run` | Runs analyze, voice, timeline and render in sequence. |
 | `manga characters` | Crops the characters found by Magi, to name and reuse them. |
 | `manga story new\|build` | Writes and draws a spin-off with a project's characters. |
@@ -125,6 +128,9 @@ manga render vs-s3           # → data/projects/vs-s3/out/vs-s3.mp4
 To animate a few panels: `manga animate vs-s3 12 27 --prompt "snow falling, cape flapping"`
 then `manga render vs-s3`.
 
+For TikTok, Shorts or Reels: `manga render vs-s3 --format vertical --max-duration 60 --split` writes
+numbered parts of at most 60 s, ending each on a whole shot.
+
 ### Anime
 
 Once a project has its analysis, voices and timeline:
@@ -140,9 +146,15 @@ manga anime vs-s3 --backend openrouter --image-model <id> --video-model <id> --m
 
 | Option | Effect |
 |---|---|
-| `--style color\|bw` | Full-color anime stills, or clean black and white. |
-| `--look "..."` | Appearance notes added to every key image, to keep the colors consistent. |
-| `--direct-provider`, `--direct-model` | A vision model writes the missing motion prompts (`openrouter`, `openai`, `google`). Manual prompts are kept. |
+| `--style color\|bw` | Full-color anime stills, or clean black and white. Remembered. |
+| `--art "..."` | Replaces the art style description used in every prompt. Remembered. |
+| `--look "..."` | Appearance notes added to every key image. Remembered. |
+| `--style-from <project>` | Reuses another project's style, reference image and faces, for the next episode. |
+| `--no-sfx` | Silent clips. |
+| `--format vertical` | Generates images and clips in 9:16, for TikTok, Shorts and Reels. |
+| `--max-duration 60` | Keeps at most that many seconds, ending on a whole shot. Only what is kept is generated. |
+| `--split` | With `--max-duration`: every shot, as numbered parts of at most that length. |
+| `--direct-provider`, `--direct-model` | A vision model writes the missing motion prompts, sound effects and characters (`openrouter`, `openai`, `google`). What was written by hand is kept. |
 | `--shots 3,4` | Only these shots. |
 | `--key-shots-only` | Only the shots marked with `manga animate` move; the others keep their key image and a camera move. |
 | `--keyframes-only` | Stop after the images, to check them before paying for clips. |
@@ -151,8 +163,21 @@ manga anime vs-s3 --backend openrouter --image-model <id> --video-model <id> --m
 
 Key images and clips are cached, so a rerun only pays for what is missing. Key images reuse the
 drawing backends and clips the animation backends, so `--backend local` and `connect` work too.
-The colors are invented by the model and can drift between shots, and there is no exact lip sync,
-music or sound effects yet.
+
+**Sound effects** come from the video model, generated with the picture, so they land on the action.
+The analysis filters out onomatopoeia, so give each shot its sounds:
+`manga animate vs-s3 12 --sound "knuckles knocking on a door" --characters Thorfinn`. A run ends by
+listing the shots without sound effects (a still image, or a clip the model returned silent) and the
+command to fix each one. A local model makes no sound, and neither does a model whose
+`generate_audio` is false: the run refuses it before billing, unless you pass `--no-sfx`.
+
+**The look stays the same.** `anime.toml` is the project's style bible. It pins the art style to one
+era in every image and clip prompt, and the first shot drawn becomes the reference image for all the
+others. Each character with a `characters/<Name>.png` portrait gets one remembered face, drawn once in
+`anime/<style>/faces/`. The panel still decides the composition and expressions. Delete
+`anime/<style>/reference.png` to choose another reference.
+
+Mouths follow timing cues in the prompt, which is not exact lip sync, and there is no music yet.
 
 ### Spin-off
 

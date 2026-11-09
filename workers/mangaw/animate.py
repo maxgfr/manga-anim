@@ -60,7 +60,8 @@ def video_request(model: str, item: dict, caps: dict) -> dict:
         "frame_images": [{"type": "image_url", "image_url": {"url": data_url(item["image"])}, "frame_type": "first_frame"}],
     }
     optional = {
-        "duration": pick_duration(item["frames"] / FPS, caps.get("supported_durations")),
+        # 4n+1 frames: the extra frame must not bill one more second (73 frames is a 3 s clip).
+        "duration": pick_duration((item["frames"] - 1) / FPS, caps.get("supported_durations")),
         "aspect_ratio": pick_ratio(item["width"], item["height"], caps.get("supported_aspect_ratios")),
         "resolution": pick_resolution(min(item["width"], item["height"]), caps.get("supported_resolutions")),
     }

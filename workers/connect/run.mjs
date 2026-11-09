@@ -91,7 +91,8 @@ export function pickResolution(shortSide, supported) {
 export function videoParams(entry, item) {
   if (!entry) return {};
   const params = {
-    durationS: pickDuration(item.frames / FPS, entry.durations),
+    // 4n+1 frames: the extra frame must not bill one more second (73 frames is a 3 s clip).
+    durationS: pickDuration((item.frames - 1) / FPS, entry.durations),
     aspectRatio: pickRatio(item.width, item.height, entry.aspectRatios),
     resolution: pickResolution(Math.min(item.width, item.height), entry.resolutions),
     ...(entry.audio === true ? { audio: false } : {}), // The render discards clip audio: do not pay for it.

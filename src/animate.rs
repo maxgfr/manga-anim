@@ -21,6 +21,11 @@ pub const BASE_PROMPT: &str = "Anime adaptation of this manga panel, smooth 2D a
 characters breathe, blink and shift slightly, hair and clothes move with the wind, light flickers. \
 Keep the exact drawing style, line art and composition. No camera cut, no text.";
 
+/// `manga anime`: the first frame is already a clean anime still, so the colors come from it.
+const ANIME_PROMPT: &str = "Shot from a Japanese TV anime, fluid hand-drawn 2D animation. \
+Keep the exact characters, colors, art style and framing of the first frame. No camera cut, no text, no speech bubbles.";
+const TALKING: &str = "The speaking character's mouth moves naturally.";
+
 pub fn model_dir() -> PathBuf {
     data_dir().join("models/wan2.2-ti2v-5b-mlx")
 }
@@ -34,11 +39,15 @@ pub struct Settings {
     pub max_area: u32,
     pub seed: i64,
     pub backend: Backend,
+    /// `manga anime`: each clip starts from this key image instead of the panel.
+    pub keyframes: HashMap<String, PathBuf>,
+    /// `manga anime`: clips last as long as their shot and use the anime prompt.
+    pub anime: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42, backend: Backend::Local }
+        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42, backend: Backend::Local, keyframes: HashMap::new(), anime: false }
     }
 }
 
@@ -49,9 +58,9 @@ const POLL_TIMEOUT_S: u64 = 30 * 60;
 
 /// Hashed with the panel's pixels. Local keys are unchanged, so existing clips stay valid;
 /// steps do not apply to OpenRouter, so changing them must not bill a new clip.
-fn clip_params(prompt: &str, width: u32, height: u32, settings: &Settings) -> String {
+fn clip_params(prompt: &str, width: u32, height: u32, frames: u32, settings: &Settings) -> String {
     let steps = if settings.backend.is_local() { settings.steps } else { None };
-    format!("{prompt}|{width}x{height}|{}|{:?}|{}{}", settings.frames, steps, settings.seed, settings.backend.cache_suffix())
+    format!("{prompt}|{width}x{height}|{frames}|{steps:?}|{}{}", settings.seed, settings.backend.cache_suffix())
 }
 
 /// Clip dimensions: panel aspect ratio, multiples of 32, area ≤ max_area.
@@ -61,6 +70,32 @@ pub fn clip_size(pw: u32, ph: u32, max_area: u32) -> (u32, u32) {
     let w = h * ar;
     let snap = |x: f64| ((x / 32.0).floor() as u32 * 32).max(256);
     (snap(w), snap(h))
+}
+
+/// The fewest frames (4n+1, 24 fps) that cover a shot.
+pub fn frames_for(duration: f64) -> u32 {
+    (((duration * 24.0 - 1.0) / 4.0).ceil().max(1.0) as u32) * 4 + 1
+}
+
+fn shot_frames(shot: &Shot, settings: &Settings) -> u32 {
+    match settings.anime {
+        // A local clip costs minutes per second and memory is the limit: --frames stays a cap.
+        true if settings.backend.is_local() => frames_for(shot.duration).min(settings.frames),
+        true => frames_for(shot.duration),
+        false => settings.frames,
+    }
+}
+
+fn shot_prompt(shot: &Shot, settings: &Settings) -> String {
+    let base = match (settings.anime, shot.lines.iter().any(|l| l.speaker.is_some())) {
+        (false, _) => BASE_PROMPT.to_string(),
+        (true, false) => ANIME_PROMPT.to_string(),
+        (true, true) => format!("{ANIME_PROMPT} {TALKING}"),
+    };
+    match &shot.prompt {
+        Some(p) => format!("{p}. {base}"),
+        None => base,
+    }
 }
 
 #[derive(Serialize)]
@@ -102,12 +137,61 @@ struct ConnectJob<'a> {
     items: Vec<Item>,
 }
 
+/// The clips still to generate, and shot → clip for every animated shot.
+fn plan_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<(Vec<Item>, HashMap<String, PathBuf>)> {
+    let mut clips = HashMap::new();
+    let work = project.path("work/animate");
+    fs::create_dir_all(&work)?;
+    fs::create_dir_all(project.path("clips"))?;
+    let mut items = Vec::new();
+    let mut pages = HashMap::new();
+    for shot in shots.iter().filter(|s| s.mode == Mode::Animate) {
+        let panel = match settings.keyframes.get(&shot.id) {
+            Some(key) => image::open(key).with_context(|| format!("unreadable key image: {}", key.display()))?,
+            None => {
+                if !pages.contains_key(&shot.page) {
+                    let img = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
+                    pages.insert(shot.page.clone(), img);
+                }
+                crop_panel(&pages[&shot.page], &shot.bbox)
+            }
+        };
+        let image_path = work.join(format!("{}.png", shot.id));
+        panel.save(&image_path)?;
+        let prompt = shot_prompt(shot, settings);
+        let frames = shot_frames(shot, settings);
+        let (width, height) = clip_size(panel.width(), panel.height(), settings.max_area);
+        let mut h = Sha256::new();
+        h.update(panel.as_bytes());
+        h.update(clip_params(&prompt, width, height, frames, settings));
+        let out = project.path(format!("clips/{}.mp4", &hex::encode(h.finalize())[..16]));
+        if !out.exists() {
+            items.push(Item {
+                id: shot.id.clone(),
+                image: image_path.to_string_lossy().into(),
+                prompt,
+                width,
+                height,
+                frames,
+                steps: settings.steps,
+                seed: settings.seed,
+                out: out.to_string_lossy().into(),
+            });
+        }
+        clips.insert(shot.id.clone(), out);
+    }
+    Ok((items, clips))
+}
+
+/// The ids of the shots whose clip is not generated yet.
+pub fn pending(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<Vec<String>> {
+    Ok(plan_clips(project, shots, settings)?.0.into_iter().map(|i| i.id).collect())
+}
+
 /// Generates the missing clips. Returns shot → clip for every animated shot.
 pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<HashMap<String, PathBuf>> {
-    let animated: Vec<&&Shot> = shots.iter().filter(|s| s.mode == Mode::Animate).collect();
-    let mut clips = HashMap::new();
-    if animated.is_empty() {
-        return Ok(clips);
+    if !shots.iter().any(|s| s.mode == Mode::Animate) {
+        return Ok(HashMap::new());
     }
     let model = model_dir();
     if settings.backend.is_local() && !model.join("config.json").exists() {
@@ -117,43 +201,7 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
             model.display()
         );
     }
-    let work = project.path("work/animate");
-    fs::create_dir_all(&work)?;
-    fs::create_dir_all(project.path("clips"))?;
-    let mut items = Vec::new();
-    let mut pages = HashMap::new();
-    for shot in animated {
-        if !pages.contains_key(&shot.page) {
-            let img = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
-            pages.insert(shot.page.clone(), img);
-        }
-        let panel = crop_panel(&pages[&shot.page], &shot.bbox);
-        let image_path = work.join(format!("{}.png", shot.id));
-        panel.save(&image_path)?;
-        let prompt = match &shot.prompt {
-            Some(p) => format!("{p}. {BASE_PROMPT}"),
-            None => BASE_PROMPT.to_string(),
-        };
-        let (width, height) = clip_size(panel.width(), panel.height(), settings.max_area);
-        let mut h = Sha256::new();
-        h.update(panel.as_bytes());
-        h.update(clip_params(&prompt, width, height, settings));
-        let out = project.path(format!("clips/{}.mp4", &hex::encode(h.finalize())[..16]));
-        if !out.exists() {
-            items.push(Item {
-                id: shot.id.clone(),
-                image: image_path.to_string_lossy().into(),
-                prompt,
-                width,
-                height,
-                frames: settings.frames,
-                steps: settings.steps,
-                seed: settings.seed,
-                out: out.to_string_lossy().into(),
-            });
-        }
-        clips.insert(shot.id.clone(), out);
-    }
+    let (items, clips) = plan_clips(project, shots, settings)?;
     if !items.is_empty() {
         let job_path = project.path("work/animate_job.json");
         match &settings.backend {
@@ -196,19 +244,19 @@ mod tests {
     #[test]
     fn local_clip_key_is_unchanged() {
         let settings = Settings { steps: Some(20), ..Default::default() };
-        assert_eq!(clip_params("wind", 640, 352, &settings), "wind|640x352|49|Some(20)|42");
+        assert_eq!(clip_params("wind", 640, 352, settings.frames, &settings), "wind|640x352|49|Some(20)|42");
     }
 
     #[test]
     fn clip_key_depends_on_backend_and_model() {
-        let key = |backend| clip_params("wind", 640, 352, &Settings { backend, ..Default::default() });
+        let key = |backend| clip_params("wind", 640, 352, 49, &Settings { backend, ..Default::default() });
         assert_ne!(key(Backend::Local), key(openrouter("a/b")));
         assert_ne!(key(openrouter("a/b")), key(openrouter("a/c")));
     }
 
     #[test]
     fn connect_clip_key_depends_on_provider_and_model() {
-        let key = |provider: &str, model: &str| clip_params("wind", 640, 352, &Settings { backend: Backend::Connect { provider: provider.into(), model: model.into() }, ..Default::default() });
+        let key = |provider: &str, model: &str| clip_params("wind", 640, 352, 49, &Settings { backend: Backend::Connect { provider: provider.into(), model: model.into() }, ..Default::default() });
         assert_eq!(key("fal", "m"), "wind|640x352|49|None|42|connect|fal|m");
         assert_ne!(key("fal", "m"), key("google", "m"));
         assert_ne!(key("fal", "m"), key("fal", "n"));
@@ -216,8 +264,16 @@ mod tests {
 
     #[test]
     fn openrouter_clip_key_ignores_steps() {
-        let key = |steps| clip_params("wind", 640, 352, &Settings { steps, backend: openrouter("a/b"), ..Default::default() });
+        let key = |steps| clip_params("wind", 640, 352, 49, &Settings { steps, backend: openrouter("a/b"), ..Default::default() });
         assert_eq!(key(Some(20)), key(None));
+    }
+
+    #[test]
+    fn frames_cover_the_shot() {
+        assert_eq!(frames_for(2.0), 49);
+        assert_eq!(frames_for(0.01), 5);
+        let frames = frames_for(6.3);
+        assert!(frames % 4 == 1 && frames as f64 >= 6.3 * 24.0 && (frames as f64) < 6.3 * 24.0 + 4.0);
     }
 
     #[test]

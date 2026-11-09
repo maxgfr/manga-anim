@@ -695,8 +695,8 @@ mod tests {
     fn compose_writes_matching_analysis() {
         let Ok(font) = load_font() else { return };
         let mut p = page(vec![vec![1.0], vec![1.0, 1.0]]);
-        p.panels[0].narration = Some("Il était une fois".into());
-        p.panels[1].bubbles = vec![Bubble { speaker: Some("A".into()), text: "Bonjour, comment vas-tu ?".into(), pos: None }];
+        p.panels[0].narration = Some("Once upon a time".into());
+        p.panels[1].bubbles = vec![Bubble { speaker: Some("A".into()), text: "Hello, how are you?".into(), pos: None }];
         let rects = layout(&p, Direction::Rtl);
         let images = vec![Some(DynamicImage::new_rgb8(64, 64)), None, None];
         let (img, analysis) = compose(&p, &rects, &images, Direction::Rtl, "0001.png", &font);

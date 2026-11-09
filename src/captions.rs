@@ -114,8 +114,8 @@ mod tests {
     #[test]
     fn wraps_words_and_cjk() {
         let measure = |s: &str| s.chars().count() as u32 * 10;
-        assert_eq!(wrap("un deux trois quatre", 100, measure), ["un deux", "trois", "quatre"]);
+        assert_eq!(wrap("one three seven eleven", 100, measure), ["one three", "seven", "eleven"]);
         assert_eq!(wrap("あいうえおかきくけこ", 50, measure), ["あいうえお", "かきくけこ"]);
-        assert_eq!(wrap("motimmensequidepasse", 50, measure), ["motimmensequidepasse"]);
+        assert_eq!(wrap("averyveryverylongword", 50, measure), ["averyveryverylongword"]);
     }
 }

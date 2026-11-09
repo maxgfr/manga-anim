@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(guess_chapter("vinland_saga_c101.5"), Some(101.5));
         assert_eq!(guess_chapter("Vinland Saga Tome 12"), Some(12.0));
         assert_eq!(guess_chapter("Chapitre 7 - Le retour"), Some(7.0));
-        assert_eq!(guess_chapter("sans numero"), None);
+        assert_eq!(guess_chapter("no number"), None);
     }
 
     #[test]

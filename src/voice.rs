@@ -263,8 +263,8 @@ mod tests {
 
     #[test]
     fn speakable_text() {
-        assert_eq!(speakable("... et la dernière touche."), "et la dernière touche.");
-        assert_eq!(speakable("Quoi...  vraiment"), "Quoi, vraiment");
+        assert_eq!(speakable("... and the final touch."), "and the final touch.");
+        assert_eq!(speakable("What...  really"), "What, really");
         assert_eq!(speakable("IF YOU DON'T LEAVE, I'LL CUT YOU. NOW!"), "If you don't leave, I'll cut you. Now!");
         assert_eq!(speakable("NOO"), "NOO");
     }

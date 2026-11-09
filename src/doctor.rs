@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::{animate, story};
+use crate::{animate, backend, story};
 use crate::home::{app_dir, cache_dir, caption_font, data_dir, venv_dir, workers_dir};
 
 fn tool(name: &str, args: &[&str]) -> Option<String> {
@@ -62,12 +62,18 @@ pub fn run() {
     line(hf_cached("ragavsachdeva/magiv2"), "Magi v2 (analysis)", "downloaded on first `manga analyze` (~2 GB)");
     line(hf_cached("mlx-community/Kokoro-82M-bf16"), "Kokoro (voice)", "downloaded on first `manga voice` (~350 MB)");
     let manga_ocr = venv.join("lib/python3.12/site-packages/manga_ocr").exists();
-    line(manga_ocr, "manga-ocr (Japanese)", if manga_ocr { "installed" } else { "optional: cd workers && uv sync --extra ja" });
+    line(manga_ocr, "manga-ocr (Japanese)", if manga_ocr { "installed" } else { "optional: cd workers && uv sync --extra ja (add --extra animate if you use Wan: sync removes extras it is not given)" });
     let wan = animate::model_dir();
     let wan_ok = wan.join("config.json").exists();
-    line(wan_ok, "Wan2.2 (animation)", if wan_ok { "installed" } else { "optional: manga models install wan (~34 GB)" });
+    line(
+        wan_ok,
+        "Wan2.2 (animation)",
+        if wan_ok { "installed" } else { "optional: cd workers && uv sync --extra ja --extra animate (without ja, sync removes it), then manga models install wan (~34 GB)" },
+    );
     let flux = story::model_dir().exists();
     line(flux, "FLUX.2 klein (drawing)", if flux { "installed" } else { "optional, for manga story: manga models install flux2 (~15 GB, ~5 GB kept)" });
+    let key = backend::key_configured();
+    line(key, "OpenRouter key", if key { "set (--backend openrouter is billed and sends data to third parties)" } else { "optional: export OPENROUTER_API_KEY for --backend openrouter" });
 
     println!();
     let ram = sysctl("hw.memsize").map(|b| b as f64 / 1024f64.powi(3));

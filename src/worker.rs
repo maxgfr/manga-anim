@@ -12,6 +12,21 @@ use serde::Serialize;
 
 use crate::home::{cache_dir, draw_venv_dir, is_installed, venv_dir, workers_dir};
 
+/// Exit code of a worker that has already printed a one-line error (mangaw.openrouter).
+const EXIT_REPORTED: i32 = 3;
+
+/// The worker already told the user what went wrong: nothing more to print.
+#[derive(Debug)]
+pub struct Reported;
+
+impl std::fmt::Display for Reported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the worker reported an error")
+    }
+}
+
+impl std::error::Error for Reported {}
+
 /// A worker's uv project. Drawing has its own: its dependencies are incompatible with Magi.
 #[derive(Clone, Copy)]
 pub enum Env {
@@ -74,6 +89,9 @@ pub fn run_in(env: Env, task: &str, job: &impl Serialize, job_path: &Path) -> Re
         .env("PYTHONWARNINGS", "ignore")
         .status()
         .with_context(|| "uv not found: install it (brew install uv)")?;
+    if status.code() == Some(EXIT_REPORTED) {
+        return Err(Reported.into());
+    }
     if !status.success() {
         bail!("worker {task} failed ({status}). Job: {}", job_path.display());
     }

@@ -7,7 +7,7 @@ on:
 
 jobs:
   rust:
-    # macOS : OCR Apple Vision, police Arial Unicode et cible Apple Silicon.
+    # macOS: Apple Vision OCR, Arial Unicode font and Apple Silicon target.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,5 +16,5 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
-      # Le test E2E (#[ignore]) demande les workers Python et les modèles : non lancé ici.
+      # The E2E test (#[ignore]) needs the Python workers and models: not run here.
       - run: cargo test

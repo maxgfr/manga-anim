@@ -1,8 +1,8 @@
-//! Le montage : `timeline.json`, une liste ordonnée de plans (une case par plan).
+//! The edit: `timeline.json`, an ordered list of shots (one panel per shot).
 //!
-//! `manga timeline` la génère depuis l'analyse et les durées audio. Les réglages faits à
-//! la main (mouvement, mode, prompt, skip, extra) sont conservés à la régénération,
-//! plan par plan, tant que l'identifiant du plan existe encore.
+//! `manga timeline` generates it from the analysis and the audio durations. Manual settings
+//! (motion, mode, prompt, skip, extra) are preserved on regeneration,
+//! shot by shot, as long as the shot's id still exists.
 
 use std::collections::HashMap;
 use std::fs;
@@ -29,9 +29,9 @@ pub enum Motion {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
-    /// Case fixe animée par la caméra (rapide).
+    /// Still panel animated by the camera (fast).
     Motion,
-    /// Case animée par un modèle image→vidéo (lent).
+    /// Panel animated by an image-to-video model (slow).
     Animate,
 }
 
@@ -40,16 +40,16 @@ pub struct Line {
     pub text_id: String,
     pub text: String,
     pub speaker: Option<String>,
-    /// Début dans le plan, en secondes.
+    /// Start within the shot, in seconds.
     pub start: f64,
     pub duration: f64,
-    /// WAV relatif au projet, absent si pas de voix.
+    /// WAV relative to the project, absent if there is no voice.
     pub audio: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Shot {
-    /// `p0003_k1` : page 0003, case 1. `p0003_page` : la page entière.
+    /// `p0003_k1`: page 0003, panel 1. `p0003_page`: the whole page.
     pub id: String,
     pub page: String,
     pub bbox: BBox,
@@ -58,10 +58,10 @@ pub struct Shot {
     pub mode: Mode,
     #[serde(default)]
     pub prompt: Option<String>,
-    /// Exclut le plan du rendu sans le supprimer (il reviendrait à la régénération).
+    /// Excludes the shot from the render without deleting it (it would come back on regeneration).
     #[serde(default)]
     pub skip: bool,
-    /// Secondes ajoutées (ou retirées) à la durée calculée.
+    /// Seconds added to (or removed from) the computed duration.
     #[serde(default)]
     pub extra: f64,
     pub lines: Vec<Line>,
@@ -77,11 +77,11 @@ pub struct Timeline {
 
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Durée du plan d'ensemble sur chaque nouvelle page (0 = pas de plan d'ensemble).
+    /// Duration of the overview shot on each new page (0 = no overview shot).
     pub page_intro: f64,
-    /// Durée d'une case sans texte.
+    /// Duration of a panel with no text.
     pub silent: f64,
-    /// Lecture sans voix : caractères par seconde.
+    /// Reading without voice: characters per second.
     pub read_cps: f64,
     pub lead: f64,
     pub gap: f64,
@@ -97,8 +97,8 @@ impl Default for Options {
 impl Timeline {
     pub fn load(project: &Project) -> Result<Self> {
         let path = project.path("timeline.json");
-        let text = fs::read_to_string(&path).with_context(|| format!("timeline absente : {} (manga timeline …)", path.display()))?;
-        serde_json::from_str(&text).with_context(|| format!("timeline invalide : {}", path.display()))
+        let text = fs::read_to_string(&path).with_context(|| format!("timeline not found: {} (manga timeline …)", path.display()))?;
+        serde_json::from_str(&text).with_context(|| format!("invalid timeline: {}", path.display()))
     }
 
     pub fn save(&self, project: &Project) -> Result<()> {
@@ -147,7 +147,7 @@ pub fn build(project: &Project, analyses: &[PageAnalysis], audio: &AudioIndex, o
     for (page, analysis) in project.cfg.pages.iter().zip(analyses) {
         let page_id = stem(&page.file);
         let full: BBox = [0.0, 0.0, analysis.width as f64, analysis.height as f64];
-        // Une « case » couvrant presque toute la page n'apporte rien comme plan d'ensemble.
+        // A "panel" covering nearly the whole page adds nothing as an overview shot.
         let panels: Vec<BBox> = if analysis.panels.is_empty() {
             vec![full]
         } else {
@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn text(id: &str, panel: Option<usize>, bbox: BBox, essential: bool) -> TextBox {
-        TextBox { id: id.into(), bbox, panel, text: format!("texte {id}"), speaker: None, essential }
+        TextBox { id: id.into(), bbox, panel, text: format!("text {id}"), speaker: None, essential }
     }
 
     fn analysis() -> PageAnalysis {
@@ -291,15 +291,15 @@ mod tests {
         let ids: Vec<&str> = tl.shots.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["p0001_page", "p0001_k0", "p0001_k1"]);
         let k0 = &tl.shots[1];
-        assert_eq!(k0.lines.len(), 2, "la bulle non essentielle est ignorée");
+        assert_eq!(k0.lines.len(), 2, "the non-essential bubble is ignored");
         assert_eq!(k0.lines[1].start, opts.lead + 2.0 + opts.gap);
         assert!((k0.duration - (opts.lead + 2.0 + opts.gap + 1.0 + opts.tail)).abs() < 1e-9);
-        // Bulle hors case : rattachée à la case la plus proche, durée de lecture sans voix.
+        // Bubble outside any panel: attached to the nearest panel, reading duration without voice.
         let k1 = &tl.shots[2];
         assert_eq!(k1.lines[0].text_id, "0001_t3");
         assert!(k1.lines[0].audio.is_none());
-        assert_eq!(k1.motion, Motion::PanDown, "case haute → panoramique vertical");
-        assert_eq!(k0.motion, Motion::PanLeft, "case très large en rtl → panoramique vers la gauche");
+        assert_eq!(k1.motion, Motion::PanDown, "tall panel → vertical pan");
+        assert_eq!(k0.motion, Motion::PanLeft, "very wide panel in rtl → pan to the left");
     }
 
     #[test]
@@ -308,13 +308,13 @@ mod tests {
         let opts = Options::default();
         let mut first = build(&project(), &[analysis()], &audio, &opts, None);
         first.shots[1].mode = Mode::Animate;
-        first.shots[1].prompt = Some("vent dans les cheveux".into());
+        first.shots[1].prompt = Some("wind in the hair".into());
         first.shots[2].skip = true;
         first.shots[2].extra = 1.0;
         let base = first.shots[2].duration;
         let second = build(&project(), &[analysis()], &audio, &opts, Some(&first));
         assert_eq!(second.shots[1].mode, Mode::Animate);
-        assert_eq!(second.shots[1].prompt.as_deref(), Some("vent dans les cheveux"));
+        assert_eq!(second.shots[1].prompt.as_deref(), Some("wind in the hair"));
         assert!(second.shots[2].skip);
         assert!((second.shots[2].duration - (base + 1.0)).abs() < 1e-9);
     }

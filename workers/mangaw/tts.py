@@ -1,7 +1,7 @@
-"""Synthèse vocale locale avec Kokoro-82M (mlx-audio).
+"""Local speech synthesis with Kokoro-82M (mlx-audio).
 
-Job : {"model": "...", "items": [{"id", "text", "voice", "speed", "out"}], "results": "/…/durations.json"}
-La langue vient de la première lettre de la voix (ff_siwis → f = français).
+Job: {"model": "...", "items": [{"id", "text", "voice", "speed", "out"}], "results": "/…/durations.json"}
+The language comes from the first letter of the voice (ff_siwis → f = French).
 """
 
 from __future__ import annotations

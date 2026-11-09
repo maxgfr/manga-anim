@@ -1,7 +1,7 @@
-//! API publique MangaDex v4 : https://api.mangadex.org/docs/
+//! MangaDex v4 public API: https://api.mangadex.org/docs/
 //!
-//! Lecture anonyme, limite de 5 requêtes/s. Les chapitres sous licence officielle
-//! n'ont pas de pages chez MangaDex (`externalUrl` vers l'éditeur) : on les signale.
+//! Anonymous reads, limited to 5 requests/s. Officially licensed chapters
+//! have no pages on MangaDex (`externalUrl` points to the publisher): we flag them.
 
 use std::fs;
 use std::path::Path;
@@ -34,9 +34,9 @@ impl MangaDex {
         sleep(PAUSE);
         let resp = self.http.get(format!("{API}{path}")).query(query).send()?;
         let status = resp.status();
-        let body: Value = resp.json().context("réponse MangaDex illisible")?;
+        let body: Value = resp.json().context("unreadable MangaDex response")?;
         if !status.is_success() {
-            bail!("MangaDex {status} sur {path} : {}", body["errors"]);
+            bail!("MangaDex {status} on {path}: {}", body["errors"]);
         }
         Ok(body)
     }
@@ -140,14 +140,14 @@ impl Source for MangaDex {
 
     fn fetch(&self, chapter: &ChapterInfo, dest: &Path) -> Result<usize> {
         if let Some(url) = &chapter.external_url {
-            bail!("chapitre {} hébergé chez l'éditeur ({url}) : rien à télécharger chez MangaDex", chapter.chapter.unwrap_or(0.0));
+            bail!("chapter {} is hosted by the publisher ({url}): nothing to download from MangaDex", chapter.chapter.unwrap_or(0.0));
         }
         let body = self.get(&format!("/at-home/server/{}", chapter.id), &[])?;
-        let base = body["baseUrl"].as_str().context("baseUrl absent")?;
-        let hash = body["chapter"]["hash"].as_str().context("hash absent")?;
+        let base = body["baseUrl"].as_str().context("baseUrl missing")?;
+        let hash = body["chapter"]["hash"].as_str().context("hash missing")?;
         let files: Vec<&str> = body["chapter"]["data"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
         if files.is_empty() {
-            bail!("chapitre sans pages");
+            bail!("chapter has no pages");
         }
         fs::create_dir_all(dest)?;
         for (i, file) in files.iter().enumerate() {
@@ -168,7 +168,7 @@ impl Source for MangaDex {
                 }
             }
             if let Some(e) = last_err {
-                return Err(e).with_context(|| format!("page {} introuvable", i + 1));
+                return Err(e).with_context(|| format!("page {} not found", i + 1));
             }
         }
         Ok(files.len())

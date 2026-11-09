@@ -1,5 +1,5 @@
-//! Sous-titres rendus en PNG transparents, superposés par ffmpeg (le ffmpeg Homebrew
-//! n'a ni libass ni drawtext). Une seule police, Arial Unicode, couvre toutes les langues.
+//! Captions rendered as transparent PNGs, overlaid by ffmpeg (Homebrew's ffmpeg
+//! has neither libass nor drawtext). A single font, Arial Unicode, covers every language.
 
 use std::path::Path;
 
@@ -18,9 +18,9 @@ pub struct CaptionStyle {
 
 impl CaptionStyle {
     pub fn load(font_path: &Path, frame_height: u32, frame_width: u32, show_speaker: bool) -> Result<Self> {
-        let bytes = std::fs::read(font_path).with_context(|| format!("police introuvable : {} (MANGA_FONT=…)", font_path.display()))?;
+        let bytes = std::fs::read(font_path).with_context(|| format!("font not found: {} (MANGA_FONT=…)", font_path.display()))?;
         Ok(Self {
-            font: FontVec::try_from_vec(bytes).context("police illisible")?,
+            font: FontVec::try_from_vec(bytes).context("unreadable font")?,
             size: frame_height as f32 * 0.042,
             max_width: (frame_width as f32 * 0.8) as u32,
             show_speaker,
@@ -28,7 +28,7 @@ impl CaptionStyle {
     }
 }
 
-/// Mots pour le retour à la ligne. Le CJK n'a pas d'espaces : chaque caractère est un mot.
+/// Words for line wrapping. CJK has no spaces: each character is a word.
 fn tokens(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
@@ -74,12 +74,12 @@ pub fn wrap(text: &str, max_width: u32, measure: impl Fn(&str) -> u32) -> Vec<St
     lines
 }
 
-/// Rend une réplique. Renvoie l'image (fond semi-transparent ajusté au texte).
+/// Renders a line. Returns the image (semi-transparent background fitted to the text).
 pub fn render(style: &CaptionStyle, text: &str, speaker: Option<&str>) -> RgbaImage {
     let scale = PxScale::from(style.size);
     let measure = |s: &str| text_size(scale, &style.font, s).0;
     let mut lines = wrap(text, style.max_width, measure);
-    let speaker = speaker.filter(|s| style.show_speaker && !s.starts_with("perso-"));
+    let speaker = speaker.filter(|s| style.show_speaker && !s.starts_with("character-"));
     if lines.is_empty() {
         lines.push(String::new());
     }
@@ -114,8 +114,8 @@ mod tests {
     #[test]
     fn wraps_words_and_cjk() {
         let measure = |s: &str| s.chars().count() as u32 * 10;
-        assert_eq!(wrap("un deux trois quatre", 100, measure), ["un deux", "trois", "quatre"]);
+        assert_eq!(wrap("one three seven eleven", 100, measure), ["one three", "seven", "eleven"]);
         assert_eq!(wrap("あいうえおかきくけこ", 50, measure), ["あいうえお", "かきくけこ"]);
-        assert_eq!(wrap("motimmensequidepasse", 50, measure), ["motimmensequidepasse"]);
+        assert_eq!(wrap("averyveryverylongword", 50, measure), ["averyveryverylongword"]);
     }
 }

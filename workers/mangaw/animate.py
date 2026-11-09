@@ -1,7 +1,7 @@
-"""Génération des clips image→vidéo avec Wan2.2 TI2V-5B via mlx-video.
+"""Image→video clip generation with Wan2.2 TI2V-5B via mlx-video.
 
-Un sous-processus par clip : la mémoire (16 Go partagés) est rendue entre deux clips.
-Job : {"model_dir": "...", "items": [{"id", "image", "prompt", "width", "height", "frames", "steps", "seed", "out"}]}
+One subprocess per clip: memory (16 GB shared) is released between clips.
+Job: {"model_dir": "...", "items": [{"id", "image", "prompt", "width", "height", "frames", "steps", "seed", "out"}]}
 """
 
 from __future__ import annotations
@@ -34,12 +34,12 @@ def main() -> None:
         if item.get("steps"):
             cmd += ["--steps", str(item["steps"])]
         t0 = time.time()
-        print(f"[{n}/{len(items)}] {item['id']} {item['width']}x{item['height']} {item['frames']} images", file=sys.stderr)
+        print(f"[{n}/{len(items)}] {item['id']} {item['width']}x{item['height']} {item['frames']} frames", file=sys.stderr)
         subprocess.run(cmd, check=True)
         tmp.rename(out)
         took = time.time() - t0
         eta = (time.time() - started) / n * (len(items) - n)
-        print(f"[{n}/{len(items)}] {item['id']} fait en {took / 60:.1f} min, reste ~{eta / 60:.0f} min", file=sys.stderr)
+        print(f"[{n}/{len(items)}] {item['id']} done in {took / 60:.1f} min, ~{eta / 60:.0f} min left", file=sys.stderr)
 
 
 if __name__ == "__main__":

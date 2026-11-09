@@ -1,5 +1,5 @@
-//! Liseuse locale : pages, cases et bulles superposées, correction du texte, des
-//! locuteurs et de l'ordre, lecture des voix. Écoute uniquement sur 127.0.0.1.
+//! Local reader: pages with overlaid panels and bubbles, correction of text,
+//! speakers and order, voice playback. Listens on 127.0.0.1 only.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ fn err(code: StatusCode, msg: impl ToString) -> Response {
     (code, msg.to_string()).into_response()
 }
 
-/// Un nom de fichier simple, sans chemin : rien ne sort du dossier projet.
+/// A plain file name, with no path: nothing escapes the project directory.
 fn safe_name(name: &str) -> Option<&str> {
     (!name.is_empty() && !name.contains(['/', '\\']) && !name.starts_with('.')).then_some(name)
 }
@@ -37,7 +37,7 @@ async fn project_info(State(app): State<Shared>) -> Response {
 }
 
 async fn get_analysis(State(app): State<Shared>, Path(i): Path<usize>) -> Response {
-    let Some(page) = app.project.cfg.pages.get(i) else { return err(StatusCode::NOT_FOUND, "page inconnue") };
+    let Some(page) = app.project.cfg.pages.get(i) else { return err(StatusCode::NOT_FOUND, "unknown page") };
     match PageAnalysis::load(&app.project.analysis_path(page)) {
         Ok(a) => Json(a).into_response(),
         Err(e) => err(StatusCode::NOT_FOUND, format!("{e:#}")),
@@ -45,7 +45,7 @@ async fn get_analysis(State(app): State<Shared>, Path(i): Path<usize>) -> Respon
 }
 
 async fn put_analysis(State(app): State<Shared>, Path(i): Path<usize>, Json(body): Json<PageAnalysis>) -> Response {
-    let Some(page) = app.project.cfg.pages.get(i) else { return err(StatusCode::NOT_FOUND, "page inconnue") };
+    let Some(page) = app.project.cfg.pages.get(i) else { return err(StatusCode::NOT_FOUND, "unknown page") };
     match body.save(&app.project.analysis_path(page)) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
@@ -53,7 +53,7 @@ async fn put_analysis(State(app): State<Shared>, Path(i): Path<usize>, Json(body
 }
 
 async fn file(app: &App, dir: &str, name: &str) -> Response {
-    let Some(name) = safe_name(name) else { return err(StatusCode::BAD_REQUEST, "nom invalide") };
+    let Some(name) = safe_name(name) else { return err(StatusCode::BAD_REQUEST, "invalid name") };
     let path: PathBuf = app.project.path(dir).join(name);
     let mime = match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "png" => "image/png",
@@ -66,7 +66,7 @@ async fn file(app: &App, dir: &str, name: &str) -> Response {
     };
     match tokio::fs::read(&path).await {
         Ok(bytes) => ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-cache")], bytes).into_response(),
-        Err(_) => err(StatusCode::NOT_FOUND, "fichier absent"),
+        Err(_) => err(StatusCode::NOT_FOUND, "file not found"),
     }
 }
 
@@ -93,7 +93,7 @@ pub fn serve(project: Project, port: u16, open: bool) -> Result<()> {
     rt.block_on(async move {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
         let url = format!("http://{}", listener.local_addr()?);
-        println!("liseuse : {url}  (Ctrl+C pour arrêter)");
+        println!("reader: {url}  (Ctrl+C to stop)");
         if open {
             std::process::Command::new("open").arg(&url).spawn().ok();
         }

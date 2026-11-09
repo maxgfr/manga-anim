@@ -1,7 +1,7 @@
-//! `manga` : lire et animer des mangas en local.
+//! `manga`: read and animate manga locally.
 //!
-//! Chaîne : import/source → project new → analyze → (read) → voice → timeline → render.
-//! Spin-off : characters → story new → story build → voice → timeline → render.
+//! Pipeline: import/source → project new → analyze → (read) → voice → timeline → render.
+//! Spin-off: characters → story new → story build → voice → timeline → render.
 
 mod analysis;
 mod animate;
@@ -30,7 +30,7 @@ use crate::project::{Direction, PagePos, Project};
 use crate::timeline::{Mode, Timeline};
 
 #[derive(Parser)]
-#[command(name = "manga", version, about = "Lire et animer des mangas en local : OCR des bulles, voix, montage vidéo, animation IA")]
+#[command(name = "manga", version, about = "Read and animate manga locally: bubble OCR, voices, video editing, AI animation")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -38,41 +38,41 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Vérifie les dépendances et les modèles.
+    /// Check dependencies and models.
     Doctor,
-    /// Cherche et télécharge depuis une source en ligne (MangaDex).
+    /// Search and download from an online source (MangaDex).
     Source {
         #[command(subcommand)]
         cmd: SourceCmd,
     },
-    /// Importe des fichiers locaux : CBZ, EPUB, PDF, CBR, dossier d'images ou de chapitres.
+    /// Import local files: CBZ, EPUB, PDF, CBR, or a folder of images or chapters.
     Import {
         path: PathBuf,
-        /// Titre dans la bibliothèque (défaut : nom du fichier ou dossier).
+        /// Title in the library (default: file or folder name).
         #[arg(long)]
         title: Option<String>,
-        /// Numéro de chapitre (défaut : deviné depuis le nom).
+        /// Chapter number (default: guessed from the name).
         #[arg(long)]
         chapter: Option<f64>,
     },
-    /// Liste la bibliothèque locale.
+    /// List the local library.
     Library,
-    /// Crée, liste ou affiche les projets.
+    /// Create, list or show projects.
     Project {
         #[command(subcommand)]
         cmd: ProjectCmd,
     },
-    /// Détecte cases et bulles, lit le texte (OCR), attribue les répliques.
+    /// Detect panels and bubbles, read the text (OCR), attribute lines to speakers.
     Analyze {
         project: String,
-        /// magi (précis, persos) ou vision (rapide, sans modèle à télécharger).
+        /// magi (local, characters), vision (local, fast) or api (vision + proofreading by the Claude API).
         #[arg(long, default_value = "magi")]
         detector: String,
-        /// Réanalyse même les pages déjà analysées (écrase les corrections).
+        /// Re-analyze even pages already analyzed (overwrites corrections).
         #[arg(long)]
         force: bool,
     },
-    /// Ouvre la liseuse web pour vérifier et corriger l'analyse.
+    /// Open the web reader to check and correct the analysis.
     Read {
         project: String,
         #[arg(long, default_value_t = 8642)]
@@ -80,70 +80,70 @@ enum Cmd {
         #[arg(long)]
         no_open: bool,
     },
-    /// Génère la voix de chaque bulle selon cast.toml.
+    /// Generate the voice of each speech bubble according to cast.toml.
     Voice {
         project: String,
         #[arg(long)]
         force: bool,
     },
-    /// Construit timeline.json (le montage), en gardant les réglages manuels.
+    /// Build timeline.json (the edit), keeping manual adjustments.
     Timeline {
         project: String,
-        /// Secondes de plan d'ensemble sur chaque page (0 pour aucun).
+        /// Seconds of full-page shot on each page (0 for none).
         #[arg(long, default_value_t = 1.5)]
         page_intro: f64,
-        /// Ignore les réglages manuels de la timeline existante.
+        /// Discard manual adjustments from the existing timeline.
         #[arg(long)]
         reset: bool,
     },
-    /// Marque des plans à animer par l'IA (ou les repasse en mode motion).
+    /// Mark shots for AI animation (or switch them back to motion mode).
     Animate {
         project: String,
-        /// Identifiants (p0003_k1) ou numéros de plans (1 = premier).
+        /// Shot ids (p0003_k1) or numbers (1 = first).
         shots: Vec<String>,
-        /// Ce qui doit bouger, en anglais de préférence (« wind blowing through his hair »).
+        /// What should move, preferably in English ("wind blowing through his hair").
         #[arg(long)]
         prompt: Option<String>,
-        /// Repasse ces plans en mode motion.
+        /// Switch these shots back to motion mode.
         #[arg(long)]
         off: bool,
     },
-    /// Rend la vidéo.
+    /// Render the video.
     Render {
         project: String,
-        /// Fichier de sortie (défaut : projects/<nom>/out/<nom>.mp4).
+        /// Output file (default: projects/<name>/out/<name>.mp4).
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Ne rend que ces plans (identifiants ou numéros), pour prévisualiser.
+        /// Render only these shots (ids or numbers), for previewing.
         #[arg(long, value_delimiter = ',')]
         shots: Vec<String>,
-        /// scroll : la page défile de case en case ; panels : une case à la fois sur fond flou.
+        /// scroll: the page scrolls from panel to panel; panels: one panel at a time on a blurred background.
         #[arg(long, value_enum, default_value = "scroll")]
         style: render::Style,
-        /// Traite les plans « animate » comme des plans motion (rapide).
+        /// Treat "animate" shots as motion shots (fast).
         #[arg(long)]
         no_animate: bool,
-        /// Affiche le nom du locuteur au-dessus des sous-titres.
+        /// Show the speaker's name above the captions.
         #[arg(long)]
         speaker: bool,
-        /// Pas de sous-titres (le texte des bulles reste visible dans l'image).
+        /// No captions (the bubble text stays visible in the image).
         #[arg(long)]
         no_captions: bool,
-        /// Sous-titres aussi en style scroll, où la page en pleine largeur les rend superflus.
+        /// Captions in scroll style too, where the full-width page makes them redundant.
         #[arg(long, conflicts_with = "no_captions")]
         captions: bool,
         #[arg(long, default_value_t = 4)]
         jobs: usize,
-        /// Images par clip animé (4n+1, 24 i/s).
+        /// Frames per animated clip (4n+1, 24 fps).
         #[arg(long, default_value_t = 49)]
         frames: u32,
         #[arg(long)]
         steps: Option<u32>,
-        /// Surface max d'un clip animé, en pixels.
+        /// Maximum area of an animated clip, in pixels.
         #[arg(long, default_value_t = 640 * 352)]
         max_area: u32,
     },
-    /// Enchaîne analyze → voice → timeline → render.
+    /// Run analyze → voice → timeline → render in sequence.
     Run {
         project: String,
         #[arg(long, default_value = "magi")]
@@ -151,24 +151,24 @@ enum Cmd {
         #[arg(long)]
         no_animate: bool,
     },
-    /// Recadre les persos détectés par Magi dans characters/found/, pour les nommer et les réutiliser.
+    /// Crop the characters detected by Magi into characters/found/, to name and reuse them.
     Characters {
         project: String,
-        /// Crops gardés par perso (les plus grandes apparitions).
+        /// Crops kept per character (the largest appearances).
         #[arg(long, default_value_t = 8)]
         per_character: usize,
     },
-    /// Spin-off : un nouveau manga dessiné avec les persos d'un projet (story.json).
+    /// Spin-off: a new manga drawn with a project's characters (story.json).
     Story {
         #[command(subcommand)]
         cmd: StoryCmd,
     },
-    /// Installe les modèles lourds.
+    /// Install the heavy models.
     Models {
         #[command(subcommand)]
         cmd: ModelsCmd,
     },
-    /// Supprime tout : le dossier de l'app (données, modèles, caches compris) et ses liens.
+    /// Remove everything: the app folder (data, models and caches included) and its links.
     Uninstall {
         #[arg(long)]
         yes: bool,
@@ -177,7 +177,7 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum SourceCmd {
-    /// Cherche une série.
+    /// Search for a series.
     Search {
         query: String,
         #[arg(long, default_value = "mangadex")]
@@ -185,7 +185,7 @@ enum SourceCmd {
         #[arg(long)]
         lang: Option<String>,
     },
-    /// Liste les chapitres d'une série dans une langue.
+    /// List a series' chapters in a language.
     Chapters {
         id: String,
         #[arg(long, default_value = "mangadex")]
@@ -193,20 +193,20 @@ enum SourceCmd {
         #[arg(long, default_value = "en")]
         lang: String,
     },
-    /// Télécharge des chapitres dans la bibliothèque.
+    /// Download chapters into the library.
     Fetch {
         id: String,
-        /// 101-110, 1,3,5-7 ou all.
+        /// 101-110, 1,3,5-7 or all.
         #[arg(long)]
         chapters: String,
         #[arg(long, default_value = "mangadex")]
         source: String,
         #[arg(long, default_value = "en")]
         lang: String,
-        /// Titre dans la bibliothèque (défaut : titre de la série).
+        /// Title in the library (default: the series title).
         #[arg(long)]
         title: Option<String>,
-        /// Préfère ce groupe quand plusieurs versions d'un chapitre existent.
+        /// Prefer this group when several versions of a chapter exist.
         #[arg(long)]
         group: Option<String>,
     },
@@ -214,7 +214,7 @@ enum SourceCmd {
 
 #[derive(Subcommand)]
 enum ProjectCmd {
-    /// Crée un projet sur une plage de pages : --from ch101:p1 --to ch120:p20.
+    /// Create a project from a page range: --from ch101:p1 --to ch120:p20.
     New {
         name: String,
         #[arg(long)]
@@ -223,10 +223,10 @@ enum ProjectCmd {
         from: PagePos,
         #[arg(long)]
         to: PagePos,
-        /// Langue du texte des planches (fr, en, ja, es, zh, ko…).
+        /// Language of the text on the pages (fr, en, ja, es, zh, ko…).
         #[arg(long)]
         lang: String,
-        /// rtl pour le manga, ltr pour comics/webtoons/BD.
+        /// rtl for manga, ltr for comics/webtoons.
         #[arg(long, value_enum, default_value = "rtl")]
         direction: Direction,
     },
@@ -238,25 +238,25 @@ enum ProjectCmd {
 
 #[derive(Subcommand)]
 enum StoryCmd {
-    /// Crée le projet avec un story.json d'exemple et les persos de --from copiés dans refs/.
+    /// Create the project with a sample story.json and the characters from --from copied into refs/.
     New {
         name: String,
-        /// Projet source, dont la banque characters/ (ou characters/found/) fournit les persos.
+        /// Source project, whose characters/ bank (or characters/found/) provides the characters.
         #[arg(long)]
         from: String,
-        /// Langue des dialogues (défaut : celle du projet source).
+        /// Dialogue language (default: the source project's).
         #[arg(long)]
         lang: Option<String>,
         #[arg(long, value_enum)]
         direction: Option<Direction>,
     },
-    /// Dessine les cases qui ont changé, compose les planches et leur analyse.
+    /// Draw the panels that changed, then compose the pages and their analysis.
     Build {
         name: String,
-        /// Ne dessine que ces pages (1,3) ; les autres restent en l'état.
+        /// Draw only these pages (1,3); the others stay as they are.
         #[arg(long, value_delimiter = ',')]
         pages: Vec<usize>,
-        /// Compose sans dessiner : les cases pas encore dessinées restent grises.
+        /// Compose without drawing: panels not drawn yet stay gray.
         #[arg(long)]
         no_draw: bool,
         #[arg(long, default_value_t = 4)]
@@ -266,10 +266,10 @@ enum StoryCmd {
 
 #[derive(Subcommand)]
 enum ModelsCmd {
-    /// Télécharge et convertit un modèle : wan (animation, ~34 Go) ou flux2 (dessin, ~15 Go).
+    /// Download and convert a model: wan (animation, ~34 GB) or flux2 (drawing, ~15 GB).
     Install {
         model: String,
-        /// Quantification du transformer : 4 (adapté à 16 Go) ou 8 (qualité, 24 Go et plus).
+        /// Transformer quantization: 4 (suits 16 GB) or 8 (quality, 24 GB and up).
         #[arg(long, default_value_t = 4)]
         bits: u32,
     },
@@ -298,8 +298,8 @@ struct AnalyzePage {
 }
 
 fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
-    if !matches!(detector, "magi" | "vision") {
-        bail!("détecteur inconnu : {detector} (magi ou vision)");
+    if !matches!(detector, "magi" | "vision" | "api") {
+        bail!("unknown detector: {detector} (magi, vision or api)");
     }
     let pages: Vec<AnalyzePage> = project
         .cfg
@@ -313,13 +313,13 @@ fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
         })
         .collect();
     if pages.is_empty() {
-        println!("toutes les pages sont déjà analysées (--force pour recommencer)");
+        println!("all pages are already analyzed (--force to start over)");
         return Ok(());
     }
-    // Banque de personnages : characters/<Nom>.png, pour nommer les locuteurs.
+    // Character bank: characters/<Name>.png, used to name the speakers.
     let character_bank: Vec<BankEntry> =
         characters::bank(project).into_iter().map(|(name, p)| BankEntry { name, image: p.to_string_lossy().into() }).collect();
-    println!("analyse de {} pages ({detector}, {} persos connus)", pages.len(), character_bank.len());
+    println!("analyzing {} pages ({detector}, {} known characters)", pages.len(), character_bank.len());
     let job = AnalyzeJob {
         lang: project.cfg.lang.clone(),
         direction: project.cfg.direction,
@@ -328,12 +328,12 @@ fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
         pages,
     };
     worker::run("analyze", &job, &project.path("work/analyze_job.json"))?;
-    // Relit tout : valide le JSON produit par le worker.
+    // Reload everything: this validates the JSON produced by the worker.
     let mut lines = 0;
     for p in &project.cfg.pages {
         lines += analysis::PageAnalysis::load(&project.analysis_path(p))?.texts.iter().filter(|t| t.essential).count();
     }
-    println!("{lines} répliques détectées. Vérifie avec : manga read {}", project.cfg.name);
+    println!("{lines} lines detected. Check them with: manga read {}", project.cfg.name);
     Ok(())
 }
 
@@ -346,7 +346,7 @@ fn render(project: &Project, out: Option<PathBuf>, mut opts: render::RenderOptio
     let clips = animate::ensure_clips(project, &selected, &settings)?;
     opts.out = out.unwrap_or_else(|| project.path(format!("out/{}.mp4", project.cfg.name)));
     let path = render::run(project, &tl, &clips, &opts)?;
-    println!("vidéo : {}", path.display());
+    println!("video: {}", path.display());
     Ok(())
 }
 
@@ -358,7 +358,7 @@ fn main() -> Result<()> {
             SourceCmd::Search { query, source, lang } => {
                 for hit in sources::by_name(&source)?.search(&query, lang.as_deref())? {
                     println!(
-                        "{}  {}{}  [{}]  langues : {}",
+                        "{}  {}{}  [{}]  languages: {}",
                         hit.id,
                         hit.title,
                         hit.year.map(|y| format!(" ({y})")).unwrap_or_default(),
@@ -370,12 +370,12 @@ fn main() -> Result<()> {
             SourceCmd::Chapters { id, source, lang } => {
                 let chapters = sources::by_name(&source)?.chapters(&id, &lang)?;
                 if chapters.is_empty() {
-                    println!("aucun chapitre téléchargeable en « {lang} » : titre sous licence retiré de MangaDex, ou pas de traduction. Utilise tes propres fichiers avec `manga import`.");
+                    println!("no downloadable chapter in \"{lang}\": licensed title removed from MangaDex, or no translation. Use your own files with `manga import`.");
                 }
                 for c in &chapters {
                     let num = c.chapter.map(library::chapter_dir_name).unwrap_or_else(|| "?".into());
                     let state = match &c.external_url {
-                        Some(url) => format!("externe (éditeur) : {url}"),
+                        Some(url) => format!("external (publisher): {url}"),
                         None => format!("{} pages", c.pages),
                     };
                     println!("ch {num:>6}  vol {:>3}  {:<40}  {:<25}  {state}", c.volume.as_deref().unwrap_or("-"), c.title, c.group);
@@ -389,7 +389,7 @@ fn main() -> Result<()> {
                     None => src.series_title(&id)?,
                 };
                 let all = src.chapters(&id, &lang)?;
-                // Une version par numéro : téléchargeable d'abord, puis le groupe demandé.
+                // One version per number: downloadable first, then the requested group.
                 let mut best: std::collections::BTreeMap<String, sources::ChapterInfo> = Default::default();
                 for c in all.into_iter().filter(|c| c.chapter.is_some_and(|n| sources::in_spec(&spec, n))) {
                     let key = library::chapter_dir_name(c.chapter.unwrap());
@@ -401,7 +401,7 @@ fn main() -> Result<()> {
                     }
                 }
                 if best.is_empty() {
-                    bail!("aucun chapitre « {chapters} » en « {lang} » pour cette série");
+                    bail!("no chapter \"{chapters}\" in \"{lang}\" for this series");
                 }
                 let mut fetched = 0;
                 for c in best.values() {
@@ -413,24 +413,24 @@ fn main() -> Result<()> {
                     match src.fetch(c, &dest) {
                         Ok(pages) => {
                             fetched += 1;
-                            println!("ch {} : {pages} pages ({})", library::chapter_dir_name(n), c.group);
+                            println!("ch {}: {pages} pages ({})", library::chapter_dir_name(n), c.group);
                         }
-                        Err(e) => eprintln!("ch {} ignoré : {e:#}", library::chapter_dir_name(n)),
+                        Err(e) => eprintln!("ch {} skipped: {e:#}", library::chapter_dir_name(n)),
                     }
                 }
-                println!("{fetched}/{} chapitres dans {}", best.len(), library::title_dir(&title).display());
+                println!("{fetched}/{} chapters in {}", best.len(), library::title_dir(&title).display());
             }
         },
         Cmd::Import { path, title, chapter } => {
-            let title = title.unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "sans-titre".into()));
+            let title = title.unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into()));
             for (n, pages) in library::import(&path, &title, chapter)? {
-                println!("{} ch {} : {pages} pages", home::slugify(&title), library::chapter_dir_name(n));
+                println!("{} ch {}: {pages} pages", home::slugify(&title), library::chapter_dir_name(n));
             }
         }
         Cmd::Library => {
             let titles = library::list_titles()?;
             if titles.is_empty() {
-                println!("bibliothèque vide : manga import <fichier> ou manga source fetch …");
+                println!("library is empty: manga import <file> or manga source fetch …");
             }
             for (title, n) in titles {
                 let chapters = library::chapters(&title)?;
@@ -438,13 +438,13 @@ fn main() -> Result<()> {
                     (Some(a), Some(b)) => format!("ch {} → {}", library::chapter_dir_name(a.0), library::chapter_dir_name(b.0)),
                     _ => String::new(),
                 };
-                println!("{title:<40} {n:>4} chapitres  {range}");
+                println!("{title:<40} {n:>4} chapters  {range}");
             }
         }
         Cmd::Project { cmd } => match cmd {
             ProjectCmd::New { name, title, from, to, lang, direction } => {
                 let p = Project::create(&name, &title, from, to, &lang, direction)?;
-                println!("projet {} : {} pages ({} → {})\n{}", p.cfg.name, p.cfg.pages.len(), p.cfg.from, p.cfg.to, p.root.display());
+                println!("project {}: {} pages ({} → {})\n{}", p.cfg.name, p.cfg.pages.len(), p.cfg.from, p.cfg.to, p.root.display());
             }
             ProjectCmd::List => {
                 if let Ok(entries) = std::fs::read_dir(home::projects_dir()) {
@@ -460,15 +460,15 @@ fn main() -> Result<()> {
                 let analyzed = p.cfg.pages.iter().filter(|pg| p.analysis_path(pg).exists()).count();
                 let audio = voice::AudioIndex::load(&p).clips.len();
                 println!("{} — {} {} → {} [{} {:?}]", p.cfg.name, p.cfg.title, p.cfg.from, p.cfg.to, p.cfg.lang, p.cfg.direction);
-                println!("dossier   : {}", p.root.display());
-                println!("pages     : {} ({analyzed} analysées)", p.cfg.pages.len());
-                println!("voix      : {audio} répliques");
+                println!("folder:   {}", p.root.display());
+                println!("pages:    {} ({analyzed} analyzed)", p.cfg.pages.len());
+                println!("voice:    {audio} lines");
                 match Timeline::load(&p) {
                     Ok(tl) => {
                         let animated = tl.shots.iter().filter(|s| s.mode == Mode::Animate && !s.skip).count();
-                        println!("timeline  : {} plans, {:.0}s, {animated} animés", tl.shots.len(), tl.total());
+                        println!("timeline: {} shots, {:.0}s, {animated} animated", tl.shots.len(), tl.total());
                     }
-                    Err(_) => println!("timeline  : absente"),
+                    Err(_) => println!("timeline: missing"),
                 }
             }
         },
@@ -479,14 +479,14 @@ fn main() -> Result<()> {
             let p = Project::open(&project)?;
             let opts = timeline::Options { page_intro, ..Default::default() };
             let tl = timeline::run(&p, &opts, reset)?;
-            println!("{} plans, {:.0}s → {}", tl.shots.len(), tl.total(), p.path("timeline.json").display());
+            println!("{} shots, {:.0}s → {}", tl.shots.len(), tl.total(), p.path("timeline.json").display());
         }
         Cmd::Animate { project, shots, prompt, off } => {
             let p = Project::open(&project)?;
             let mut tl = Timeline::load(&p)?;
             let ids: Vec<String> = render::select(&tl, &shots)?.iter().map(|s| s.id.clone()).collect();
             if ids.is_empty() {
-                bail!("indique au moins un plan (identifiant ou numéro)");
+                bail!("specify at least one shot (id or number)");
             }
             for shot in tl.shots.iter_mut().filter(|s| ids.contains(&s.id)) {
                 shot.mode = if off { Mode::Motion } else { Mode::Animate };
@@ -515,10 +515,10 @@ fn main() -> Result<()> {
             let p = Project::open(&project)?;
             let found = characters::run(&p, per_character)?;
             for f in &found {
-                println!("{:<20} {:>4} apparitions  {}", f.label, f.appearances, f.crops.first().map(String::as_str).unwrap_or(""));
+                println!("{:<20} {:>4} appearances  {}", f.label, f.appearances, f.crops.first().map(String::as_str).unwrap_or(""));
             }
             println!(
-                "{} persos → {}\nPour en nommer un : copie son meilleur crop en characters/<Nom>.png",
+                "{} characters → {}\nTo name one, copy its best crop to characters/<Name>.png",
                 found.len(),
                 p.path("characters/found/index.json").display()
             );
@@ -526,15 +526,15 @@ fn main() -> Result<()> {
         Cmd::Story { cmd } => match cmd {
             StoryCmd::New { name, from, lang, direction } => {
                 let path = story::new(&name, &Project::open(&from)?, lang, direction)?;
-                println!("scénario : {}\nÉcris l'histoire puis : manga story build {}", path.display(), home::slugify(&name));
+                println!("script: {}\nWrite the story, then run: manga story build {}", path.display(), home::slugify(&name));
             }
             StoryCmd::Build { name, pages, no_draw, steps } => {
                 let (p, pending) = story::build(&name, &story::BuildOptions { pages, draw: !no_draw, steps })?;
-                println!("{} planches → {}", p.cfg.pages.len(), p.path("pages").display());
+                println!("{} pages → {}", p.cfg.pages.len(), p.path("pages").display());
                 if pending > 0 {
-                    println!("{pending} cases pas encore dessinées (en gris)");
+                    println!("{pending} panels not drawn yet (shown in gray)");
                 }
-                println!("Ensuite : manga voice {0} && manga timeline {0} && manga render {0}", p.cfg.name);
+                println!("Next: manga voice {0} && manga timeline {0} && manga render {0}", p.cfg.name);
             }
         },
         Cmd::Uninstall { yes } => uninstall::run(yes)?,
@@ -555,7 +555,7 @@ fn main() -> Result<()> {
                         let job = serde_json::json!({ "model": "flux2", "out_dir": story::model_dir(), "bits": bits });
                         worker::run_in(worker::Env::Draw, "models", &job, &job_path)?;
                     }
-                    _ => bail!("modèle inconnu : {model} (disponibles : wan, flux2)"),
+                    _ => bail!("unknown model: {model} (available: wan, flux2)"),
                 }
             }
         },

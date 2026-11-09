@@ -1,4 +1,4 @@
-//! `manga doctor` : ce qui est installé, ce qui manque, et comment l'installer.
+//! `manga doctor`: what is installed, what is missing, and how to install it.
 
 use std::path::Path;
 use std::process::Command;
@@ -37,10 +37,10 @@ fn free_gb(path: &Path) -> Option<f64> {
 }
 
 pub fn run() {
-    println!("app     : {} ({:.1} Go)", app_dir().display(), size_gb(&app_dir()));
-    println!("données : {} ({:.1} Go : planches, projets, modèles, caches)", data_dir().display(), size_gb(&data_dir()));
-    println!("workers : {}", workers_dir().display());
-    println!("tout supprimer : manga uninstall\n");
+    println!("app:     {} ({:.1} GB)", app_dir().display(), size_gb(&app_dir()));
+    println!("data:    {} ({:.1} GB: pages, projects, models, caches)", data_dir().display(), size_gb(&data_dir()));
+    println!("workers: {}", workers_dir().display());
+    println!("remove everything: manga uninstall\n");
     match tool("ffmpeg", &["-version"]) {
         Some(v) => line(true, "ffmpeg", &v),
         None => line(false, "ffmpeg", "brew install ffmpeg"),
@@ -51,31 +51,31 @@ pub fn run() {
     }
     let venv = venv_dir();
     let sync = format!("UV_PROJECT_ENVIRONMENT=\"{}\" uv sync --project \"{}\" --extra ja", venv.display(), workers_dir().display());
-    line(venv.exists(), "workers Python", if venv.exists() { "prêts" } else { &sync });
+    line(venv.exists(), "Python workers", if venv.exists() { "ready" } else { &sync });
     let font = caption_font();
-    line(font.exists(), "police sous-titres", &font.display().to_string());
-    line(tool("pdftoppm", &["-v"]).is_some(), "import PDF", "pdftoppm (brew install poppler)");
+    line(font.exists(), "caption font", &font.display().to_string());
+    line(tool("pdftoppm", &["-v"]).is_some(), "PDF import", "pdftoppm (brew install poppler)");
     let rar = tool("unar", &["-v"]).is_some() || tool("7z", &[]).is_some();
-    line(rar, "import CBR/7z", if rar { "unar ou 7z" } else { "optionnel : brew install unar" });
+    line(rar, "CBR/7z import", if rar { "unar or 7z" } else { "optional: brew install unar" });
 
     println!();
-    line(hf_cached("ragavsachdeva/magiv2"), "Magi v2 (analyse)", "téléchargé au premier `manga analyze` (~2 Go)");
-    line(hf_cached("mlx-community/Kokoro-82M-bf16"), "Kokoro (voix)", "téléchargé au premier `manga voice` (~350 Mo)");
+    line(hf_cached("ragavsachdeva/magiv2"), "Magi v2 (analysis)", "downloaded on first `manga analyze` (~2 GB)");
+    line(hf_cached("mlx-community/Kokoro-82M-bf16"), "Kokoro (voice)", "downloaded on first `manga voice` (~350 MB)");
     let manga_ocr = venv.join("lib/python3.12/site-packages/manga_ocr").exists();
-    line(manga_ocr, "manga-ocr (japonais)", if manga_ocr { "installé" } else { "optionnel : cd workers && uv sync --extra ja" });
+    line(manga_ocr, "manga-ocr (Japanese)", if manga_ocr { "installed" } else { "optional: cd workers && uv sync --extra ja" });
     let wan = animate::model_dir();
     let wan_ok = wan.join("config.json").exists();
-    line(wan_ok, "Wan2.2 (animation)", if wan_ok { "installé" } else { "optionnel : manga models install wan (~34 Go)" });
+    line(wan_ok, "Wan2.2 (animation)", if wan_ok { "installed" } else { "optional: manga models install wan (~34 GB)" });
     let flux = story::model_dir().exists();
-    line(flux, "FLUX.2 klein (dessin)", if flux { "installé" } else { "optionnel, pour manga story : manga models install flux2 (~15 Go, ~5 Go gardés)" });
+    line(flux, "FLUX.2 klein (drawing)", if flux { "installed" } else { "optional, for manga story: manga models install flux2 (~15 GB, ~5 GB kept)" });
 
     println!();
     let ram = sysctl("hw.memsize").map(|b| b as f64 / 1024f64.powi(3));
     if let Some(gb) = ram {
-        line(gb >= 16.0, "mémoire", &format!("{gb:.0} Go{}", if gb < 24.0 { " : animation possible en basse résolution seulement" } else { "" }));
+        line(gb >= 16.0, "memory", &format!("{gb:.0} GB{}", if gb < 24.0 { ": animation possible at low resolution only" } else { "" }));
     }
     let probe = app_dir();
     if let Some(gb) = free_gb(&probe) {
-        line(gb > 10.0, "disque libre", &format!("{gb:.0} Go"));
+        line(gb > 10.0, "free disk", &format!("{gb:.0} GB"));
     }
 }

@@ -23,8 +23,10 @@ Keep the exact drawing style, line art and composition. No camera cut, no text."
 
 /// `manga anime`: the first frame is already a clean anime still, so the colors come from it.
 const ANIME_PROMPT: &str = "Shot from a Japanese TV anime, fluid hand-drawn 2D animation. \
-Keep the exact characters, colors, art style and framing of the first frame. No camera cut, no text, no speech bubbles.";
-const NO_VOICES: &str = "Only these sound effects and quiet room tone: no speech, no voices, no music.";
+Keep the exact characters, colors, art style and framing of the first frame. No camera cut, no text, no lettering.";
+// A model asked for "talking" also voices the line, in whatever language it likes, under the dub.
+const SOUNDTRACK_ONLY: &str = "The soundtrack has only these sound effects and quiet room tone. No human voice, no speech, no dialogue, no singing, no music.";
+const LIPS: &str = "the character speaking silently mouths the words: their lips visibly open and close without pause, with no voice heard. The rest of the time every mouth stays closed. A face turned away stays turned away.";
 
 pub fn model_dir() -> PathBuf {
     data_dir().join("models/wan2.2-ti2v-5b-mlx")
@@ -90,10 +92,11 @@ fn shot_frames(shot: &Shot, settings: &Settings) -> u32 {
     }
 }
 
-/// When a character speaks, so the mouth moves with the voice that will be laid over the clip.
+/// When someone talks, in the same words for every manga: only the timing depends on the shot.
+/// A name means nothing to a video model, and `--detector vision` finds no speakers at all.
 fn speech_cue(shot: &Shot) -> Option<String> {
-    let windows: Vec<String> = shot.lines.iter().filter(|l| l.speaker.is_some()).map(|l| format!("{:.1} to {:.1} s", l.start, l.start + l.duration)).collect();
-    (!windows.is_empty()).then(|| format!("The speaking character's mouth moves only from {} and stays closed otherwise.", windows.join(" and from ")))
+    let windows: Vec<String> = shot.lines.iter().map(|l| format!("{:.1} to {:.1} s", l.start, l.start + l.duration)).collect();
+    (!windows.is_empty()).then(|| format!("From {}, {LIPS}", windows.join(" and from ")))
 }
 
 fn shot_prompt(shot: &Shot, settings: &Settings) -> String {
@@ -109,7 +112,7 @@ fn shot_prompt(shot: &Shot, settings: &Settings) -> String {
     parts.extend(speech_cue(shot));
     if settings.sound {
         let effects = shot.sound.as_deref().unwrap_or("the natural sounds of what happens on screen");
-        parts.push(format!("Sound: {effects}. {NO_VOICES}"));
+        parts.push(format!("Sound: {effects}. {SOUNDTRACK_ONLY}"));
     }
     parts.join(" ")
 }
@@ -318,9 +321,33 @@ mod tests {
         let prompt = shot_prompt(&talking_shot(Some("door knock")), &settings);
         assert!(prompt.starts_with("He turns."));
         assert!(prompt.contains("Fixed style."));
-        assert!(prompt.contains("mouth moves only from 0.4 to 1.9 s and stays closed otherwise"));
+        assert!(prompt.contains("From 0.4 to 1.9 s, the character speaking silently mouths the words"));
+        assert!(!prompt.contains("Kit"), "the prompt stays generic: a name means nothing to the model");
         assert!(prompt.contains("Sound: door knock."));
-        assert!(prompt.contains("no speech, no voices, no music"));
+        assert!(prompt.contains("No human voice, no speech"), "otherwise the model voices the line under the dub");
+    }
+
+    #[test]
+    fn every_line_gets_its_timing_in_one_cue() {
+        let mut shot = talking_shot(None);
+        let line = |speaker: &str, start: f64| crate::timeline::Line { text_id: "t".into(), text: "hi".into(), speaker: Some(speaker.into()), start, duration: 1.0, audio: None };
+        shot.lines = vec![line("Kit", 0.0), line("Ann", 1.5)];
+        let cue = speech_cue(&shot).unwrap();
+        assert!(cue.starts_with("From 0.0 to 1.0 s and from 1.5 to 2.5 s, the character speaking"), "{cue}");
+    }
+
+    #[test]
+    fn mouths_move_without_a_known_speaker() {
+        let mut shot = talking_shot(None);
+        shot.lines[0].speaker = None;
+        assert!(speech_cue(&shot).is_some(), "--detector vision attributes no speakers");
+    }
+
+    #[test]
+    fn a_shot_without_lines_has_no_mouth_cue() {
+        let mut shot = talking_shot(None);
+        shot.lines.clear();
+        assert_eq!(speech_cue(&shot), None);
     }
 
     #[test]

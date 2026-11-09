@@ -32,6 +32,7 @@ instead of local models.
 - A vision model can write each shot's motion prompt (`--direct-provider`, `--direct-model`).
 - The skill installs with `npx skills add maxgfr/manga-anim --skill manga -a claude-code`.
 - A clip is no longer billed one second too long (a 3 s clip was requested as 4 s).
+- Mouths move on talking shots, in the same generic prompt for every manga, and the model no longer voices the line under the dub.
 - Sound effects: `manga anime` keeps the sound the video model generates with the picture, guided by `--sound`, under the voices, and ends by listing the shots that have none.
 - A style bible: `anime.toml` pins one art style, a reference image and one remembered face per character, across runs and episodes (`--style-from`).
 - Vertical output for TikTok, Shorts and Reels, with a maximum length and numbered parts: `--format vertical --max-duration 60 --split`, on `anime` and `render`.
@@ -178,6 +179,7 @@ others. Each character with a `characters/<Name>.png` portrait gets one remember
 `anime/<style>/reference.png` to choose another reference.
 
 Mouths follow timing cues in the prompt, which is not exact lip sync, and there is no music yet.
+In a motion prompt, say whose lips move by how they look and where they are, and avoid "talks" or "speaks": a video model knows no names and would voice the line under the dub.
 
 ### Spin-off
 

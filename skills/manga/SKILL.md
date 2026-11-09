@@ -1,17 +1,62 @@
 ---
 name: manga
-description: Turn manga pages into video locally with the `manga` CLI (manga-anim) — reading video (speech bubble OCR, synthetic voices, captions, camera moves) or AI animation of panels (Wan2.2) — and create a new manga (spin-off) drawn with the characters of an existing manga (FLUX.2). Use when the user wants to read, edit, dub or animate a manga, comic or webtoon, "from this page to that page", import a CBZ/PDF/EPUB, search MangaDex, fix a project's OCR, or invent a sequel or a new story with existing characters.
+description: Run the whole `manga` CLI (manga-anim) pipeline from Claude Code, on the Mac or through API keys (OpenRouter, fal, OpenAI, Google, xAI, Replicate, ElevenLabs, Anthropic) — reading video (speech bubble OCR, voices, captions, camera moves), AI animation of panels, and a new manga (spin-off) drawn with the characters of an existing one. Use when the user wants to read, edit, dub or animate a manga, comic or webtoon, "from this page to that page", import a CBZ/PDF/EPUB, search MangaDex, fix a project's OCR, or invent a sequel or a new story with existing characters.
 ---
 
 # manga-anim
 
-`manga` CLI (repo: ~/Downloads/manga-anim). Everything runs locally on the Mac, except the `api` and `claude-code` analysis modes and the optional OpenRouter backend.
+`manga` CLI. `manga doctor` shows where it lives. By default everything runs locally on the Mac; the `api` and `claude-code` analysis modes and the OpenRouter and provider backends send data out.
 Everything lives in the app folder, including models and caches: `data/library/<title>/<chapter>/NNN.png`,
 `data/projects/<name>/`, `data/models/` and `data/cache/`. Write nothing to `~/.cache`.
 If the CLI is installed (Homebrew), these folders are in `~/Library/Application Support/manga-anim/`:
 `manga doctor` shows the actual location.
 `manga uninstall --yes` deletes everything, but only run it if the user explicitly asks.
 `manga --help` and `manga <command> --help` are the reference for options.
+
+## You run the whole job
+
+Take a request from pages to finished video yourself; the user should not have to type a `manga` command.
+
+1. **Check the setup.** Run `manga doctor`. Tell the user what is missing and install only what the request needs.
+2. **Settle the brief once.** Source and page range, language, reading direction, output style, and whether to spend money. A sample page settles the direction: follow the sentence order across the panels, since English editions of manga often keep right-to-left.
+3. **Pick where each step runs**, from what the user asked for and which keys exist. Check a key by testing whether its variable is set, and never print it.
+
+   | Goal | Default from Claude Code | With keys |
+   |---|---|---|
+   | Analysis | `--detector vision`, then your own review (claude-code mode) | `--detector api`, optionally `--provider` |
+   | Voices | Kokoro | `--backend openrouter` or `connect` |
+   | Animation | Skip unless asked | `--backend openrouter` or `connect` |
+   | Spin-off art | `--no-draw` layout first | `--backend openrouter` or `connect` |
+
+4. **Do the review yourself** even when an API did the first pass: read every page next to its JSON. Vision can merge neighbouring bubbles into one box, and an API review can only rewrite the boxes it receives, so a cheap model silently drops part of the text. When that happens, split the box by hand: add entries with new unique ids and their own `bbox`.
+5. **Show the result.** Sample frames with ffmpeg and look at them, then give the output paths and what was spent.
+
+### API keys
+
+Read keys from the environment. If the user pastes one in chat, pass it only in the environment of the command that needs it. Never write a key to a file, job, commit, log or page, and suggest revoking it afterwards.
+
+### Budget
+
+Billed steps need the user's go-ahead and a stated limit, unless they have already given both.
+
+1. List current models and prices with `manga models search <video|image|speech|vision> [query]`. Choose recent models unless told otherwise.
+2. State the estimate before spending: seconds × price per second for clips, characters × price for voices, panels for art.
+3. Check the balance: `GET https://openrouter.ai/api/v1/credits` shows `total_credits` and `total_usage`. It can lag a few minutes.
+4. Run **one** item first and look at it. Only then run the rest, cheapest step first, and recheck the balance after each step. Finished items stay cached, so a rerun does not pay again.
+5. Stop at the limit and say so.
+
+Reference points from a real run on OpenRouter: four panels with `black-forest-labs/flux-3-image` cost about $0.10, a 3-second 720p clip with `alibaba/wan-3.0` about $0.45, and 28 dialogue lines with `elevenlabs/eleven-v4-turbo` about $0.05. Prices change, so always check.
+
+### Animation settings that matter
+
+- Pick panels with little or no lettering, since models can warp text.
+- `--frames` sets the requested length (49 is about 2 s, usually billed as the next supported length).
+- `--max-area` sets the billed resolution through the clip's short side: `720000` stays at 720p for any panel shape, while a larger area can jump to 1080p and double the price.
+- Silent shots last 1.6 s. Set `extra` in `timeline.json` so the shot lasts as long as the clip, then rerun `manga timeline`.
+
+### Rights
+
+Before downloading a work, check its license and whether it allows adaptation, synthetic voices and AI use. Follow any credit or reporting terms. Without a clear grant, keep the output private and say why. Never publish a video or page of a work you cannot show a license for.
 
 ## Three analysis modes
 
@@ -49,8 +94,8 @@ Voices, animation and drawing run locally by default. `--backend openrouter --mo
 OpenRouter with no large model to download, and needs `OPENROUTER_API_KEY` in the environment.
 
 **It is billed per use and sends data to third parties** (panels, prompts, character references, dialogue
-text), to OpenRouter and to the provider serving the model. Never choose it on your own: ask first, say what
-would be sent, and let the user pick the model. There is no default model.
+text), to OpenRouter and to the provider serving the model. Use it when the user asks for API generation; otherwise
+ask first and say what would be sent. There is no default model: follow Budget above to pick one.
 
 - Animation: `manga render <name> --backend openrouter --model <id>` (a video model that accepts a first frame).
 - Voices: `manga voice <name> --backend openrouter --model <id>` (a speech model that outputs MP3; models
@@ -67,8 +112,8 @@ was finished stays cached, so rerunning does not pay for it again.
 
 `--backend connect --provider <p> --model <id>` runs the same steps directly on a provider, through a
 small Node worker (Node 22.12+, `npm ci` on first use). It is **billed per use by that provider and sends
-it the data** (panels, prompts, character references, dialogue text). Same rule: never choose it on your
-own, ask first and let the user pick the provider and model. There is no `--model latest`.
+it the data** (panels, prompts, character references, dialogue text). Same rule: use it when the user asks
+for it, otherwise ask first. There is no `--model latest`.
 
 | Step | Providers |
 |---|---|
@@ -141,6 +186,8 @@ The spin-off becomes a normal project: `read`, `voice`, `timeline`, `render`, `a
    `characters/<Name>.png`. This bank also names the speakers if you rerun `manga analyze <src> --force`.
    An older analysis, or one done with `--detector vision`, has no characters: Magi must be rerun,
    which overwrites corrections made in the reader. Ask first.
+   **Without Magi**, make the bank yourself: read the pages, pick a sharp, large view of each character, and crop it
+   with `ffmpeg -i page.png -vf crop=W:H:X:Y characters/<Name>.png`. Do this before `manga story new`.
 2. **Project**: `manga story new <name> --from <src> [--lang fr] [--direction rtl|ltr]` creates
    `projects/<name>/story.json` (a one-page sample) and copies the bank to `refs/`.
 3. **Script**: rewrite `story.json` in full.

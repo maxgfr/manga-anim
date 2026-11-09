@@ -170,7 +170,7 @@ Director: "This will be your first time on duty... well..."</pre>
       <thead><tr><th scope="col">Mode</th><th scope="col">Command</th><th scope="col">What happens</th></tr></thead>
       <tbody>
         <tr><td>Local</td><td><code>manga analyze bj</code></td><td>Magi v2 or Apple Vision. Nothing leaves your Mac.</td></tr>
-        <tr><td>API</td><td><code>manga analyze bj --detector api</code></td><td>Vision finds the boxes and the Claude API proofreads each page. Billed, and pages are sent to Anthropic.</td></tr>
+        <tr><td>API</td><td><code>manga analyze bj --detector api</code></td><td>Vision finds the boxes and a vision model proofreads each page: Claude by default, or OpenRouter, OpenAI and Google with <code>--provider</code>. Billed, and pages are sent to that provider.</td></tr>
         <tr><td>Claude Code</td><td>the <code>manga</code> skill</td><td>Claude Code reads the pages and corrects the JSON, with no API key. Pages are sent to Anthropic.</td></tr>
       </tbody>
     </table>
@@ -196,7 +196,7 @@ Director: "This will be your first time on duty... well..."</pre>
 <section class="styles">
     <div>
       <h2>Bring a panel to life</h2>
-      <p>Mark the shots that matter and render them as short clips. This three-second clip came from Wan 3.0 through OpenRouter, at about $0.30. The same step can run locally with Wan2.2.</p>
+      <p>Mark the shots that matter and render them as short clips. This three-second clip came from Wan 3.0 through OpenRouter, at about $0.45. The same step can run locally with Wan2.2.</p>
       <p><code>manga render bj --backend openrouter --model alibaba/wan-3.0</code></p>
     </div>
     <video src="assets/anim-clip.mp4" controls playsinline loop preload="none" style="aspect-ratio:auto" aria-label="An animated panel: a doctor eats quickly while a young intern watches"></video>
@@ -221,6 +221,42 @@ Director: "This will be your first time on duty... well..."</pre>
   </section>
 
   <section>
+    <h2>Pick any model with your own keys</h2>
+    <p class="lede">Search current models and prices without leaving the terminal, then pass the id to any step. Keys come from environment variables and are never written to disk.</p>
+    <div class="split">
+      <pre tabindex="0"><span class="c">$ manga models search image flux</span>
+bfl/flux-3-image-klein   gateway   $0.008-0.036/image
+bfl/flux-kontext-pro     gateway   $0.04/image
+bfl/flux-pro-1.1         gateway   $0.04/image
+bfl/flux-3-image         gateway   $0.041-0.607/image</pre>
+      <table>
+        <thead><tr><th scope="col">Step</th><th scope="col">Providers</th></tr></thead>
+        <tbody>
+          <tr><td>Review</td><td>Anthropic, OpenRouter, OpenAI, Google</td></tr>
+          <tr><td>Voices</td><td>OpenRouter, fal, OpenAI, Google, ElevenLabs</td></tr>
+          <tr><td>Animation</td><td>OpenRouter, fal, Google, xAI, Replicate</td></tr>
+          <tr><td>Drawing</td><td>OpenRouter, fal, OpenAI, Google, xAI, Replicate</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="credit">This demo ran on OpenRouter and Anthropic. The other providers are covered by automated tests only, through <a href="https://github.com/maxgfr/llm-models">llm-models and llm-connect</a>.</p>
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Or just ask Claude Code</h2>
+      <p>The <code>manga</code> skill runs the whole job: it checks the setup, picks the models, states the cost before spending, reviews every page and hands you the video.</p>
+      <p>Install it once with a link in your skills folder.</p>
+    </div>
+    <pre tabindex="0"><span class="c"># once, from the repository</span>
+ln -s "$PWD/skills/manga" ~/.claude/skills/manga
+
+<span class="c"># then, in Claude Code</span>
+Turn pages 11 to 14 of enbj001.pdf into a dubbed
+video. Animate the best panels, keep it under $2.</pre>
+  </section>
+
+  <section>
     <h2>Local by default, OpenRouter when you want it</h2>
     <p class="lede">The tool needs macOS on Apple Silicon, with <code>ffmpeg</code>, <code>uv</code> and Rust to build. Each generation step runs on your Mac or through OpenRouter with <code>--backend openrouter</code>, which is billed and sends your text and panels to third parties.</p>
     <table>
@@ -229,7 +265,7 @@ Director: "This will be your first time on duty... well..."</pre>
         <tr><td>Voices</td><td>Kokoro-82M, about 350 MB</td><td>Any speech model. Used here: ElevenLabs v4 Turbo.</td></tr>
         <tr><td>Animate chosen panels</td><td>Wan2.2 TI2V-5B, about 34 GB to download</td><td>Any image-to-video model. Used here: Wan 3.0.</td></tr>
         <tr><td>Draw a spin-off</td><td>FLUX.2 [klein] 4B, about 15 GB to download</td><td>Any image model that takes references. Used here: FLUX 3.</td></tr>
-        <tr><td>Panels, bubbles, speakers</td><td>Magi v2 (research license) or Apple Vision</td><td>Not used: review locally, with the Claude API or in Claude Code.</td></tr>
+        <tr><td>Panels, bubbles, speakers</td><td>Magi v2 (research license) or Apple Vision</td><td>Any vision model, with <code>--detector api --provider openrouter</code>.</td></tr>
       </tbody>
     </table>
   </section>
@@ -239,7 +275,7 @@ Director: "This will be your first time on duty... well..."</pre>
       <h2>Bring your own pages</h2>
       <a class="btn" href="https://github.com/maxgfr/manga-anim">Get manga-anim on GitHub</a>
     </div>
-    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, animated clips and spin-off art are AI-generated. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
+    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, animated clips and spin-off art are AI-generated. Every command has been run on real pages, except the local Magi, Wan and FLUX models. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
   </footer>
 </main>
 

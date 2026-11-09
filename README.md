@@ -96,13 +96,29 @@ transformers 5, Magi transformers 4. `uv` creates it on the first `manga story b
 | Mode | Command | What happens |
 |---|---|---|
 | **local** (default) | `manga analyze vs-s3` or `--detector vision` | Magi v2 or Apple Vision: nothing leaves the Mac |
-| **api** | `manga analyze vs-s3 --detector api` | Vision segments the page, the Claude API reviews each page: text, order, speakers, noise |
+| **api** | `manga analyze vs-s3 --detector api [--provider openrouter --model <id>]` | Vision segments the page, an API model (Anthropic by default) reviews each page: text, order, speakers, noise |
 | **claude-code** | the `manga` skill, in natural language | Vision segments the page, Claude Code reviews the pages and fixes `analysis/*.json`, no API key needed |
 
 The `api` and `claude-code` modes send the pages to Anthropic. The `api` mode requires
 `ant auth login` or `ANTHROPIC_API_KEY` and is billed by usage; it does not need the Magi model.
 Voices, drawing, animation, editing and rendering stay local in all three modes, unless you
-choose the OpenRouter backend below.
+choose a backend below.
+
+`--detector api` can also go through another provider, with any model that reads images:
+
+```sh
+manga models search vision flash --provider openrouter      # free: ids and prices
+export OPENROUTER_API_KEY=...                               # or OPENAI_API_KEY / GEMINI_API_KEY
+manga analyze vs-s3 --detector api --provider openrouter --model <id>
+```
+
+`--provider` is `anthropic` (the default), `openrouter`, `openai` or `google`, and `--model` is
+required for the last three. **The pages and their OCR text are sent to that provider (and, for
+OpenRouter, to the company serving the model), and each page is billed.** The review contract is the
+same: a forgotten bubble keeps its OCR, an invented id is ignored, and a refused or truncated page
+keeps its OCR. A model that cannot do structured output is asked for plain JSON; if the reply still
+cannot be read the run stops with a one-line error and the finished pages are kept.
+`--force` is needed to redo pages already reviewed by another provider.
 
 ## Generation backends
 
@@ -123,6 +139,53 @@ of them can run on [OpenRouter](https://openrouter.ai) instead, with no large mo
 ```sh
 export OPENROUTER_API_KEY=...         # read from the environment only, never written to job files
 ```
+
+### Other providers through llm-connect
+
+`--backend connect --provider <p> --model <id>` reaches a provider directly through
+[llm-connect](https://github.com/maxgfr/llm-models/tree/main/packages/llm-connect), in a small Node
+worker. Node 22.12 or later is then required (optional otherwise; `manga doctor` reports it), and
+the locked packages are installed with `npm ci` on first use.
+
+| Step | Providers | Key variable |
+|---|---|---|
+| Animation (`manga render`) | fal, google, xai, replicate | see below |
+| Voices (`manga voice`) | fal, openai, google, elevenlabs | see below |
+| Drawing (`manga story build`) | fal, openai, google, xai, replicate | see below |
+
+Keys come only from the environment, under the names llm-connect documents: `FAL_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `REPLICATE_API_TOKEN`, `ELEVENLABS_API_KEY`.
+
+> **`--backend connect` is billed per use by the provider you pick, and sends it your data**: panels
+> for animation, prompts and character reference images for drawing, the dialogue text for voices.
+> Nothing is sent unless you pass `--backend connect`.
+
+Pick a model with the free catalog search (it shells out to the `llm-models` CLI, or `npx llm-models`):
+
+```sh
+manga models search video wan --provider fal
+manga models search speech --provider openai
+manga models search image --provider google
+manga models search vision flash
+```
+
+Prices are shown when the catalog publishes them (`?` otherwise). `--model latest` does not exist:
+`llm-models latest` only ranks text tiers per endpoint, so it cannot pick an image-to-video, image or
+speech model, and the choice of model is also the choice of what you pay.
+
+What each step does with `--backend connect` matches the OpenRouter path (cropped clips without
+audio, 24 kHz WAV, PNG panels, cache keys including backend, provider and model), with these limits:
+
+- **Capabilities** come from the free `llm-models` catalog: duration, ratio, resolution and seed are
+  only sent when the model declares them, and a model listed as text-to-video only, or without image
+  editing when panels use character refs, is refused before anything is billed. A model the catalog
+  does not list, or does not describe, runs with its provider's defaults and a warning, and its
+  references cannot be checked.
+- **Voices** are sent as is from `cast.toml`, which must hold ids of that model. Speed is applied
+  locally. Audio must arrive in a container (MP3, WAV...), which is what these providers return.
+- **Drawing**: fal needs a model that takes several images, such as `fal-ai/flux-2/edit`, when a
+  panel has more than one reference; Replicate takes one reference, or eight with a
+  `black-forest-labs/flux-2-*` model.
 
 `--model` is required: there is no default, because the model decides what you pay. The clips,
 WAV files and panels produced are the same as with the local models, and the cache key includes
@@ -156,7 +219,8 @@ are for personal use.
 | Part | Role |
 |---|---|
 | `src/` (Rust) | CLI, library, sources, project, timeline, ffmpeg rendering, PNG captions, axum reader |
-| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX or OpenRouter), `animate` (mlx-video Wan2.2 or OpenRouter), `draw_openrouter`, `openrouter` (HTTP client), `models` |
+| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `review` (API review), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX, OpenRouter or llm-connect), `animate` (mlx-video Wan2.2, OpenRouter or llm-connect), `draw_openrouter`, `draw_connect`, `openrouter` (HTTP client), `connect` (drives the Node worker), `models` |
+| `workers/connect` (Node, optional) | `run.mjs`: one image, speech line or clip through llm-connect |
 | `workers/draw/mangadraw` (Python, uv, separate venv) | `draw` (FLUX.2 [klein] via mflux), `models` |
 
 Rust and Python exchange JSON files (`projects/<name>/work/*_job.json` → `analysis/*.json`,
@@ -167,11 +231,12 @@ Rust and Python exchange JSON files (`projects/<name>/work/*_job.json` → `anal
 ```sh
 cargo test                       # unit tests
 cargo test -- --ignored          # E2E: synthetic CBZ → video (macOS, workers installed)
-workers/.venv/bin/python -m unittest discover -s workers/tests   # OpenRouter paths against a mock server
+workers/.venv/bin/python -m unittest discover -s workers/tests   # API paths against a mock server
+(cd workers/connect && npm ci && npm test)                       # the llm-connect worker against a mock server
 ```
 
-`MANGA_OPENROUTER_BASE_URL` points the workers at that mock; it exists for tests only and accepts
-loopback addresses only.
+`MANGA_OPENROUTER_BASE_URL` and `MANGA_CONNECT_BASE_URL` point the workers at those mocks; they exist
+for tests only and accept loopback addresses only. No test calls a real API or uses a real key.
 
 ## Models and licenses
 

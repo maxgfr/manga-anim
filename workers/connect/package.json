@@ -1,0 +1,24 @@
+{
+  "name": "manga-connect-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generation through llm-connect: images, speech and video from several providers",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@ai-sdk/elevenlabs": "^3.0.80",
+    "@ai-sdk/fal": "^3.0.76",
+    "@ai-sdk/google": "^4.0.99",
+    "@ai-sdk/openai": "^4.0.96",
+    "@ai-sdk/replicate": "^3.0.76",
+    "@ai-sdk/xai": "^5.0.39",
+    "ai": "^7.0.143",
+    "llm-connect": "^2.10.0",
+    "llm-models": "^1.16.0"
+  }
+}

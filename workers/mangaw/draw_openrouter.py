@@ -51,15 +51,23 @@ def image_request(model: str, item: dict, params: dict) -> dict:
 
 
 def save_png(response: dict, item: dict) -> None:
-    """Providers choose the format they return; the pipeline reads panels as PNG."""
     data = response.get("data") or []
     encoded = data[0].get("b64_json") if data else None
     if not encoded:
         raise Error(f"OpenRouter returned no image for {item['id']}: try another seed or model")
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(encoded))).convert("RGB")
-    except (binascii.Error, UnidentifiedImageError, OSError):
+        raw = base64.b64decode(encoded)
+    except binascii.Error:
         raise Error(f"OpenRouter returned an image that cannot be read for {item['id']}") from None
+    write_png(raw, item)
+
+
+def write_png(raw: bytes, item: dict) -> None:
+    """Providers choose the format they return; the pipeline reads panels as PNG."""
+    try:
+        image = Image.open(io.BytesIO(raw)).convert("RGB")
+    except (UnidentifiedImageError, OSError):
+        raise Error(f"the provider returned an image that cannot be read for {item['id']}") from None
     out = Path(item["out"])
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp.png")

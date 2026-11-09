@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 use crate::analysis::PageAnalysis;
 use crate::backend::Backend;
+use crate::connect;
 use crate::project::Project;
 use crate::worker;
 
@@ -164,6 +165,11 @@ struct TtsJob {
     /// Absent for the local path. Never holds the API key: the worker reads it from the environment.
     #[serde(skip_serializing_if = "Option::is_none")]
     backend: Option<&'static str>,
+    /// `--backend connect` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    script: Option<String>,
     model: String,
     items: Vec<TtsItem>,
     results: String,
@@ -235,23 +241,32 @@ pub fn run(project: &Project, force: bool, backend: &Backend) -> Result<()> {
     } else {
         println!("{} lines to generate ({} already up to date)", items.len(), wanted.len() - items.len());
         let results = project.path("work/tts_durations.json");
-        let (name, model) = match backend {
-            Backend::Local => (None, TTS_MODEL.to_string()),
+        let refuse_kokoro = |model: &str| match items.iter().find(|i| is_kokoro_voice(&i.voice)) {
+            Some(item) => bail!(
+                "cast.toml uses the Kokoro voice \"{}\", which {model} does not know: set narrator, pool and [voices] to voice ids of that model",
+                item.voice
+            ),
+            None => Ok(()),
+        };
+        let (name, provider, script, model) = match backend {
+            Backend::Local => (None, None, None, TTS_MODEL.to_string()),
             Backend::OpenRouter { model } => {
-                if let Some(item) = items.iter().find(|i| is_kokoro_voice(&i.voice)) {
-                    bail!(
-                        "cast.toml uses the Kokoro voice \"{}\", which {model} does not know: set narrator, pool and [voices] to voice ids of that model",
-                        item.voice
-                    );
-                }
+                refuse_kokoro(model)?;
                 backend.check_key()?;
                 println!("using {model} on OpenRouter (billed per use; the text is sent to third parties)");
-                (Some("openrouter"), model.clone())
+                (Some("openrouter"), None, None, model.clone())
+            }
+            Backend::Connect { provider, model } => {
+                refuse_kokoro(model)?;
+                backend.check_key()?;
+                let script = connect::ensure_worker()?;
+                println!("using {model} on {provider} (billed per use; the text is sent to {provider})");
+                (Some("connect"), Some(provider.clone()), Some(script.to_string_lossy().into()), model.clone())
             }
         };
         // A leftover file from an earlier run must not pass for this run's results.
         let _ = fs::remove_file(&results);
-        let job = TtsJob { backend: name, model, items, results: results.to_string_lossy().into() };
+        let job = TtsJob { backend: name, provider, script, model, items, results: results.to_string_lossy().into() };
         let outcome = worker::run("tts", &job, &project.path("work/tts_job.json"));
         if let Err(e) = outcome {
             // An interrupted OpenRouter run leaves partial results: keep the lines already paid for.
@@ -297,6 +312,14 @@ mod tests {
         let key = |b: &Backend| line_hash("Hi", "alloy", 1.0, b);
         assert_ne!(key(&Backend::Local), key(&openrouter("a/b")));
         assert_ne!(key(&openrouter("a/b")), key(&openrouter("a/c")));
+    }
+
+    #[test]
+    fn line_hash_depends_on_connect_provider() {
+        let connect = |provider: &str, model: &str| line_hash("Hi", "alloy", 1.0, &Backend::Connect { provider: provider.into(), model: model.into() });
+        assert_ne!(connect("openai", "tts-1"), connect("fal", "tts-1"));
+        assert_ne!(connect("openai", "tts-1"), connect("openai", "tts-2"));
+        assert_ne!(connect("openai", "a/b"), line_hash("Hi", "alloy", 1.0, &openrouter("a/b")));
     }
 
     #[test]

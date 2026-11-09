@@ -122,19 +122,21 @@ def analyze_vision(pages: list[dict], lang: str, rtl: bool, ocr: Ocr) -> None:
         write_page(job, img, panels, order_texts(texts, panels, rtl), ocr, "vision")
 
 
-def analyze_api(pages: list[dict], bank: list[dict], lang: str, rtl: bool, ocr: Ocr) -> None:
-    """Local geometry and OCR, reviewed by the Claude API. The final analysis is only written
+def analyze_api(pages: list[dict], bank: list[dict], lang: str, rtl: bool, ocr: Ocr, review: dict | None) -> None:
+    """Local geometry and OCR, reviewed by an API model. The final analysis is only written
     once the page is reviewed: a failure leaves the page to redo, not half processed."""
-    from .review import Reviewer
+    from .openrouter import reported
+    from .review import make_reviewer
 
-    reviewer = Reviewer(lang, rtl, [c["name"] for c in bank])
-    for job in pages:
-        draft = Path(job["out"] + ".draft")
-        analyze_vision([{**job, "out": str(draft)}], lang, rtl, ocr)
-        page = reviewer.review(job["image"], json.loads(draft.read_text()))
-        Path(job["out"]).write_text(json.dumps(page, ensure_ascii=False, indent=2))
-        draft.unlink()
-    print(f"Claude API: {reviewer.tokens[0]} input tokens, {reviewer.tokens[1]} output tokens", file=sys.stderr)
+    with reported():
+        reviewer = make_reviewer(lang, rtl, [c["name"] for c in bank], review)
+        for job in pages:
+            draft = Path(job["out"] + ".draft")
+            analyze_vision([{**job, "out": str(draft)}], lang, rtl, ocr)
+            page = reviewer.review(job["image"], json.loads(draft.read_text()))
+            Path(job["out"]).write_text(json.dumps(page, ensure_ascii=False, indent=2))
+            draft.unlink()
+    print(f"{reviewer.label}: {reviewer.tokens[0]} input tokens, {reviewer.tokens[1]} output tokens", file=sys.stderr)
 
 
 # --- Magi v2 ----------------------------------------------------------------------------
@@ -253,7 +255,7 @@ def main() -> None:
     if job["detector"] == "vision":
         analyze_vision(job["pages"], job["lang"], rtl, ocr)
     elif job["detector"] == "api":
-        analyze_api(job["pages"], job.get("character_bank", []), job["lang"], rtl, ocr)
+        analyze_api(job["pages"], job.get("character_bank", []), job["lang"], rtl, ocr, job.get("review"))
     else:
         analyze_magi(job["pages"], job.get("character_bank", []), rtl, ocr)
 

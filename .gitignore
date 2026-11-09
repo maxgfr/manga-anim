@@ -6,3 +6,4 @@ __pycache__/
 .impeccable/
 /data/
 .DS_Store
+workers/connect/node_modules/

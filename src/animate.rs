@@ -10,6 +10,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::backend::Backend;
+use crate::connect;
 use crate::home::data_dir;
 use crate::project::Project;
 use crate::render::crop_panel;
@@ -91,6 +92,16 @@ struct OpenRouterJob<'a> {
     items: Vec<Item>,
 }
 
+/// Never holds an API key: the worker reads it from the environment.
+#[derive(Serialize)]
+struct ConnectJob<'a> {
+    #[serde(flatten)]
+    connect: connect::Fields<'a>,
+    poll_interval_s: u64,
+    poll_timeout_s: u64,
+    items: Vec<Item>,
+}
+
 /// Generates the missing clips. Returns shot → clip for every animated shot.
 pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<HashMap<String, PathBuf>> {
     let animated: Vec<&&Shot> = shots.iter().filter(|s| s.mode == Mode::Animate).collect();
@@ -157,6 +168,13 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
                 let job = OpenRouterJob { backend: "openrouter", model, poll_interval_s: POLL_INTERVAL_S, poll_timeout_s: POLL_TIMEOUT_S, items };
                 worker::run("animate", &job, &job_path)?;
             }
+            Backend::Connect { provider, model } => {
+                settings.backend.check_key()?;
+                let script = connect::ensure_worker()?;
+                println!("{} clips to generate with {model} on {provider} (billed per use; panels are sent to {provider})", items.len());
+                let job = ConnectJob { connect: connect::Fields::new(provider, model, &script), poll_interval_s: POLL_INTERVAL_S, poll_timeout_s: POLL_TIMEOUT_S, items };
+                worker::run("animate", &job, &job_path)?;
+            }
         }
     }
     for (id, clip) in &clips {
@@ -186,6 +204,14 @@ mod tests {
         let key = |backend| clip_params("wind", 640, 352, &Settings { backend, ..Default::default() });
         assert_ne!(key(Backend::Local), key(openrouter("a/b")));
         assert_ne!(key(openrouter("a/b")), key(openrouter("a/c")));
+    }
+
+    #[test]
+    fn connect_clip_key_depends_on_provider_and_model() {
+        let key = |provider: &str, model: &str| clip_params("wind", 640, 352, &Settings { backend: Backend::Connect { provider: provider.into(), model: model.into() }, ..Default::default() });
+        assert_eq!(key("fal", "m"), "wind|640x352|49|None|42|connect|fal|m");
+        assert_ne!(key("fal", "m"), key("google", "m"));
+        assert_ne!(key("fal", "m"), key("fal", "n"));
     }
 
     #[test]

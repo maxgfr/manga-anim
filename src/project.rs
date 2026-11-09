@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::home::{projects_dir, slugify};
@@ -105,6 +105,10 @@ impl Project {
 
     /// Creates the project by copying the pages in the range `from..=to`.
     pub fn create(name: &str, title: &str, from: PagePos, to: PagePos, lang: &str, direction: Direction) -> Result<Self> {
+        ensure!(!slugify(name).is_empty(), "\"{name}\" has no letter or digit to name a project folder");
+        let root = Self::dir(name);
+        // The analysis, voices and edit of the old range would silently apply to the new pages.
+        ensure!(!root.join("project.toml").exists(), "project {} already exists: pick another name, or delete {} first", slugify(name), root.display());
         let title = slugify(title);
         let chapters = library::chapters(&title)?;
         let mut selected = Vec::new();
@@ -129,7 +133,6 @@ impl Project {
             bail!("no pages in this range. Chapters available for {title}: {}", have.join(", "));
         }
 
-        let root = Self::dir(name);
         let pages_dir = root.join("pages");
         if pages_dir.exists() {
             fs::remove_dir_all(&pages_dir)?;

@@ -23,7 +23,7 @@ mod worker;
 
 use std::path::PathBuf;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
@@ -290,9 +290,18 @@ enum ModelsCmd {
     Install {
         model: String,
         /// Transformer quantization: 4 (suits 16 GB) or 8 (quality, 24 GB and up).
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = 4, value_parser = quantization_bits)]
         bits: u32,
     },
+}
+
+/// Refused here: otherwise a bad value only fails after a download of tens of GB.
+fn quantization_bits(s: &str) -> Result<u32, String> {
+    match s {
+        "4" => Ok(4),
+        "8" => Ok(8),
+        _ => Err("expected 4 or 8".into()),
+    }
 }
 
 #[derive(Serialize)]
@@ -335,6 +344,10 @@ fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
     if pages.is_empty() {
         println!("all pages are already analyzed (--force to start over)");
         return Ok(());
+    }
+    // A worker stopping on page 40 of 200 is a Python traceback and a long wait for nothing.
+    for page in &pages {
+        image::image_dimensions(&page.image).with_context(|| format!("unreadable page: {} (replace it, or leave it out of the project's range)", page.image))?;
     }
     // Character bank: characters/<Name>.png, used to name the speakers.
     let character_bank: Vec<BankEntry> =
@@ -450,7 +463,7 @@ fn dispatch() -> Result<()> {
             }
         },
         Cmd::Import { path, title, chapter } => {
-            let title = title.unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into()));
+            let title = title.unwrap_or_else(|| library::default_title(&path));
             for (n, pages) in library::import(&path, &title, chapter)? {
                 println!("{} ch {}: {pages} pages", home::slugify(&title), library::chapter_dir_name(n));
             }
@@ -513,12 +526,13 @@ fn dispatch() -> Result<()> {
             println!("{} shots, {:.0}s → {}", tl.shots.len(), tl.total(), p.path("timeline.json").display());
         }
         Cmd::Animate { project, shots, prompt, off } => {
+            // select() reads an empty list as "every shot".
+            if shots.is_empty() {
+                bail!("specify at least one shot (id or number)");
+            }
             let p = Project::open(&project)?;
             let mut tl = Timeline::load(&p)?;
             let ids: Vec<String> = render::select(&tl, &shots)?.iter().map(|s| s.id.clone()).collect();
-            if ids.is_empty() {
-                bail!("specify at least one shot (id or number)");
-            }
             for shot in tl.shots.iter_mut().filter(|s| ids.contains(&s.id)) {
                 shot.mode = if off { Mode::Motion } else { Mode::Animate };
                 if prompt.is_some() {
@@ -605,6 +619,13 @@ mod tests {
             Cmd::Voice { backend, model, .. } => (backend, model),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn model_bits_are_checked_before_any_download() {
+        let parse = |bits| Cli::try_parse_from(["manga", "models", "install", "wan", "--bits", bits]).is_ok();
+        assert!(parse("4") && parse("8"));
+        assert!(!parse("3") && !parse("16"));
     }
 
     #[test]

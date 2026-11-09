@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>manga-anim: turn manga pages into voiced video</title>
-<meta name="description" content="A local command-line tool for Apple Silicon that finds panels and speech bubbles, reads the text, voices each character and cuts it all into a video.">
+<title>manga-anim: turn manga pages into voiced video and anime</title>
+<meta name="description" content="A command-line tool that finds panels and speech bubbles, reads the text, voices each character and cuts it all into a reading video or a full anime episode.">
 <style>
 @font-face { font-family: "Dela Gothic One"; src: url(assets/dela-gothic-one.woff2) format("woff2"); font-display: swap; }
 @font-face { font-family: "Zen Kaku"; font-weight: 400; src: url(assets/zen-kaku-400.woff2) format("woff2"); font-display: swap; }
@@ -81,6 +81,20 @@ th, td { text-align: left; padding: 14px 18px 14px 0; border-bottom: 2px solid v
 th { color: var(--paper); font-weight: 700; }
 td code, p code, li code { color: var(--lantern); font-size: .92em; }
 
+.episode { width: 100%; aspect-ratio: 16 / 9; display: block; border: 4px solid var(--paper); background: #000; margin-bottom: var(--gutter); }
+.trio { display: grid; grid-template-columns: minmax(0, .8fr) repeat(2, minmax(0, 1.2fr)); gap: var(--gutter); margin-bottom: clamp(22px, 3vw, 36px); }
+.trio img { display: block; width: 100%; height: 100%; object-fit: cover; aspect-ratio: 16 / 9; border: 4px solid var(--paper); background: var(--paper); }
+.trio .raw img { object-fit: contain; }
+.news { margin: 0 0 clamp(22px, 3vw, 36px); padding-left: 1.2em; max-width: 72ch; }
+.news li { margin-bottom: .5em; }
+.news li::marker { color: var(--lantern); }
+.catalog { overflow-x: auto; }
+.catalog table { min-width: 720px; }
+.catalog td:first-child { white-space: nowrap; }
+.ok { color: var(--doctor); font-weight: 700; }
+.mock { color: var(--robot); font-weight: 700; }
+.no { color: var(--mina); font-weight: 700; }
+
 .credit { margin: 10px 0 0; font-size: .95rem; }
 .shot { display: block; width: 100%; height: auto; border: 4px solid var(--paper); }
 .close { margin-top: clamp(56px, 8vw, 120px); background: var(--lantern); color: var(--night); padding: clamp(28px, 4vw, 60px); display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: clamp(20px, 3vw, 48px); align-items: end; }
@@ -92,7 +106,7 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
   .page { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
   .title, .screen, .source { grid-column: 1; grid-row: auto; }
   .source { max-width: 520px; justify-self: center; }
-  .split, .styles, .close { grid-template-columns: minmax(0, 1fr); }
+  .split, .styles, .close, .trio { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .source .spot { transition: none; } }
 </style>
@@ -102,13 +116,15 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
   <div class="page" id="stage">
     <div class="frame title">
       <h1>Manga pages in. Voiced video&nbsp;out.</h1>
-      <p>A command-line tool that finds the panels and speech bubbles, reads the text, voices the characters and cuts a video. Run it on Apple Silicon, or send the heavy steps to OpenRouter.</p>
+      <p>A command-line tool that finds the panels and speech bubbles, reads the text, voices the characters and cuts a reading video or a full anime episode. Run it on Apple Silicon, or use your own API keys.</p>
       <div class="actions">
         <button class="btn" id="sound" type="button" aria-pressed="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h4l5 4v-13l-5 4H4Z"/><path d="M17 9a4.2 4.2 0 0 1 0 6"/></svg>
           <span>Play with sound</span>
         </button>
-        <a class="btn ghost" href="https://github.com/maxgfr/manga-anim">View the code on GitHub</a>
+        <a class="btn ghost" href="#anime">See the anime</a>
+        <a class="btn ghost" href="#everything">Everything it can do</a>
+        <a class="btn ghost" href="https://github.com/maxgfr/manga-anim">GitHub</a>
       </div>
     </div>
     <div class="frame screen">
@@ -121,6 +137,38 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
   </div>
   <ol class="track" id="track" aria-label="Lines on this page. Choose one to jump to it."></ol>
   <p class="credit">Demo pages: <em>Give My Regards to Black Jack</em> by SHUHO SATO, used under the <a href="https://densho810.com/free/">author's free-use terms</a>.</p>
+
+  <section id="anime">
+    <h2>From manga page to anime episode</h2>
+    <p class="lede"><code>manga anime</code> is the last step. Each panel is repainted as a clean widescreen key image, animated for as long as its shot lasts, and cut full-frame with the voices and subtitles. Page four of this demo, from the same analysis and voices as the video above:</p>
+    <video class="episode" src="assets/bj-anime.mp4" poster="assets/poster-anime.jpg" controls playsinline preload="none" aria-label="Page four of Give My Regards to Black Jack as a colored, animated and voiced anime sequence"></video>
+    <div class="trio">
+      <figure class="raw"><img src="assets/anime-panel.jpg" alt="The original black-and-white manga panel, with sound effects lettered over the art" loading="lazy"><figcaption>The panel, with its lettering.</figcaption></figure>
+      <figure><img src="assets/anime-color.jpg" alt="The same scene as a full-color widescreen anime still, with no lettering" loading="lazy"><figcaption><code>--style color</code>, the default.</figcaption></figure>
+      <figure><img src="assets/anime-bw.jpg" alt="The same scene as a clean black-and-white widescreen still, with no lettering" loading="lazy"><figcaption><code>--style bw</code>.</figcaption></figure>
+    </div>
+    <div class="split">
+      <pre tabindex="0"><span class="c"># what would this cost? no model is called</span>
+manga anime bj --backend openrouter \
+  --image-model black-forest-labs/flux-3-image \
+  --video-model alibaba/wan-3.0 --dry-run
+
+<span class="c"># check the images before paying for clips</span>
+manga anime bj … --keyframes-only
+
+<span class="c"># the episode, refused above 14 s of video</span>
+manga anime bj … --key-shots-only --max-seconds 14</pre>
+      <table>
+        <thead><tr><th scope="col">This demo</th><th scope="col">Cost</th></tr></thead>
+        <tbody>
+          <tr><td>6 key images, FLUX 3</td><td>About $0.20</td></tr>
+          <tr><td>5 clips, 17 s of Wan 3.0 at 720p</td><td>About $2.10</td></tr>
+          <tr><td>1 wide shot kept as a still with a camera move</td><td>Free</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="credit">AI-colorized and animated adaptation; the colors are invented by the model. One clip was generated twice, because the model gave a character glasses when he raised his head, which brought the real spend to $3.06. There is no exact lip sync, music or sound effects yet.</p>
+  </section>
 
   <section>
     <h2>Seven commands from archive to video</h2>
@@ -246,14 +294,56 @@ bfl/flux-3-image         gateway   $0.041-0.607/image</pre>
     <div>
       <h2>Or just ask Claude Code</h2>
       <p>The <code>manga</code> skill runs the whole job: it checks the setup, picks the models, states the cost before spending, reviews every page and hands you the video.</p>
-      <p>Install it once with a link in your skills folder.</p>
+      <p>It can run the anime step too: it writes the motion prompts, checks the first key image and the first clip, then does the rest within your budget.</p>
     </div>
-    <pre tabindex="0"><span class="c"># once, from the repository</span>
-ln -s "$PWD/skills/manga" ~/.claude/skills/manga
+    <pre tabindex="0"><span class="c"># install the skill once</span>
+npx skills add maxgfr/manga-anim --skill manga -a claude-code
 
 <span class="c"># then, in Claude Code</span>
-Turn pages 11 to 14 of enbj001.pdf into a dubbed
-video. Animate the best panels, keep it under $2.</pre>
+Turn pages 11 to 14 of enbj001.pdf into an anime
+episode with voices. Keep it under $4.</pre>
+  </section>
+
+  <section id="everything">
+    <h2>Everything manga-anim can do</h2>
+    <p class="lede">New in this version:</p>
+    <ul class="news">
+      <li><code>manga anime</code>: a full-frame episode from an analyzed and voiced project, in color or black and white.</li>
+      <li>A vision model can write each shot's motion prompt, with <code>--direct-provider</code> and <code>--direct-model</code>.</li>
+      <li><code>--dry-run</code>, <code>--keyframes-only</code> and <code>--max-seconds</code> keep the spending under control.</li>
+      <li>The Claude Code skill installs with <code>npx skills</code>.</li>
+      <li>Clips are no longer billed one second too long.</li>
+    </ul>
+    <p class="lede">The full list, and how far each part has actually been tested. <span class="ok">Run</span> means real pages or real API calls, <span class="mock">Tests</span> means automated tests against mocks, <span class="no">Not run</span> means written but never executed for this demo.</p>
+    <div class="catalog" tabindex="0" role="region" aria-label="Every command and how it was tested">
+    <table>
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Where it runs</th><th scope="col">State</th></tr></thead>
+      <tbody>
+        <tr><td><code>doctor</code></td><td>Checks the tools, models and API keys.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>source search</code>, <code>chapters</code>, <code>fetch</code></td><td>Finds and downloads chapters from MangaDex.</td><td>MangaDex</td><td><span class="no">Not run</span></td></tr>
+        <tr><td><code>import</code></td><td>CBZ, EPUB, PDF, CBR, or a folder of images or chapters.</td><td>Local</td><td><span class="ok">Run</span> with PDF, CBZ and folders. <span class="no">Not run</span> with a real CBR or EPUB.</td></tr>
+        <tr><td><code>library</code></td><td>Lists the local library.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>project new</code>, <code>list</code>, <code>show</code></td><td>Creates and inspects projects.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>analyze --detector vision</code></td><td>Panels, bubbles and OCR with Apple Vision.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>analyze --detector magi</code></td><td>Panels, bubbles, characters and speakers with Magi v2.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
+        <tr><td><code>analyze --detector api</code></td><td>Vision, then a model proofreads each page.</td><td>Anthropic, OpenRouter, OpenAI, Google</td><td><span class="ok">Run</span> on Anthropic and OpenRouter. <span class="mock">Tests</span> on the others.</td></tr>
+        <tr><td><code>manga</code> skill review</td><td>Claude Code reads the pages and corrects the JSON.</td><td>Claude Code</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>read</code></td><td>Web reader to edit text, speakers and order, and listen to each line.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>voice</code></td><td>One voice per character, from <code>cast.toml</code>.</td><td>Kokoro, OpenRouter, fal, OpenAI, Google, ElevenLabs</td><td><span class="ok">Run</span> on Kokoro and OpenRouter. <span class="mock">Tests</span> on the others.</td></tr>
+        <tr><td><code>timeline</code></td><td>Builds the editable cut, keeping manual changes.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>animate</code></td><td>Marks shots for animation, with a motion prompt.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>render --style scroll</code></td><td>The full-width page scrolls as it is read.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
+        <tr><td><code>render --style panels</code></td><td>One panel at a time, with zoom, pan and subtitles.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
+        <tr><td><code>anime</code></td><td>Clean 16:9 key images, clips and a full-frame episode, in color or black and white.</td><td>OpenRouter, llm-connect providers, local FLUX and Wan</td><td><span class="ok">Run</span> on OpenRouter. <span class="mock">Tests</span> on motion prompts by API. <span class="no">Not run</span> locally or through llm-connect.</td></tr>
+        <tr><td><code>run</code></td><td>Chains analyze, voice, timeline and render.</td><td>Local</td><td><span class="ok">Run</span> step by step, not chained.</td></tr>
+        <tr><td><code>characters</code></td><td>Crops the characters found by Magi, to name and reuse them.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
+        <tr><td><code>story new</code>, <code>build</code></td><td>A new manga drawn with a project's characters.</td><td>Local FLUX, OpenRouter, llm-connect providers</td><td><span class="ok">Run</span> on OpenRouter. <span class="mock">Tests</span> through llm-connect. <span class="no">Not run</span> with local FLUX.</td></tr>
+        <tr><td><code>models search</code></td><td>Current models and prices for video, image, speech and vision.</td><td>llm-models</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>models install</code></td><td>Installs the local Wan and FLUX models.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
+        <tr><td><code>uninstall</code></td><td>Removes the app folder and its links.</td><td>Local</td><td><span class="ok">Run</span> on a throwaway install.</td></tr>
+      </tbody>
+    </table>
+    </div>
   </section>
 
   <section>
@@ -265,6 +355,7 @@ video. Animate the best panels, keep it under $2.</pre>
         <tr><td>Voices</td><td>Kokoro-82M, about 350 MB</td><td>Any speech model. Used here: ElevenLabs v4 Turbo.</td></tr>
         <tr><td>Animate chosen panels</td><td>Wan2.2 TI2V-5B, about 34 GB to download</td><td>Any image-to-video model. Used here: Wan 3.0.</td></tr>
         <tr><td>Draw a spin-off</td><td>FLUX.2 [klein] 4B, about 15 GB to download</td><td>Any image model that takes references. Used here: FLUX 3.</td></tr>
+        <tr><td>Anime key images and clips</td><td>The same FLUX and Wan models</td><td>An image model that takes references and a first-frame video model. Used here: FLUX 3 and Wan 3.0.</td></tr>
         <tr><td>Panels, bubbles, speakers</td><td>Magi v2 (research license) or Apple Vision</td><td>Any vision model, with <code>--detector api --provider openrouter</code>.</td></tr>
       </tbody>
     </table>
@@ -275,11 +366,11 @@ video. Animate the best panels, keep it under $2.</pre>
       <h2>Bring your own pages</h2>
       <a class="btn" href="https://github.com/maxgfr/manga-anim">Get manga-anim on GitHub</a>
     </div>
-    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, animated clips and spin-off art are AI-generated. Commands were tested on real pages, except the local Magi, Wan and FLUX models and MangaDex downloads. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
+    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, colors, animated clips and spin-off art are AI-generated. The table above says what has actually been run. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
   </footer>
 </main>
 
-<script type="application/json" id="demo">{"pages":{"0001.png":{"src":"assets/0001.jpg","w":1414,"h":2000,"panels":[[160.0,0.0,1252.0,836.0],[160.0,866.0,1252.0,1188.0],[725.0,1205.0,1290.0,2000.0],[0.0,1218.0,722.0,2000.0]],"texts":[{"id":"0001_t0","bbox":[745.0,40.0,1215.0,160.0],"speaker":"Saito"},{"id":"0001_t1","bbox":[445.0,195.0,925.0,290.0],"speaker":"Saito"},{"id":"0001_t2","bbox":[195.0,320.0,530.0,370.0],"speaker":"Saito"},{"id":"0001_t3","bbox":[1032.0,852.0,1220.0,1077.0],"speaker":"Saito"},{"id":"0001_t4","bbox":[1033.0,1200.0,1288.0,1490.0],"speaker":"Saito"},{"id":"0001_t5","bbox":[722.0,1203.0,992.0,1530.0],"speaker":"Saito"},{"id":"0001_t6","bbox":[428.0,1203.0,680.0,1500.0],"speaker":"Saito"},{"id":"0001_t7","bbox":[62.0,1622.0,168.0,1848.0],"speaker":"Saito"}]},"0002.png":{"src":"assets/0002.jpg","w":1414,"h":2000,"panels":[[159.0,0.0,1258.0,666.0],[159.0,697.0,1258.0,940.0],[159.0,972.0,1258.0,1364.0],[840.0,1395.0,1258.0,2000.0],[159.0,1395.0,830.0,2000.0]],"texts":[{"id":"0002_t0","bbox":[1075.0,90.0,1228.0,320.0],"speaker":"Director"},{"id":"0002_t1","bbox":[160.0,335.0,465.0,665.0],"speaker":"Director"},{"id":"0002_t2","bbox":[975.0,681.0,1232.0,736.0],"speaker":null},{"id":"0002_t3","bbox":[975.0,975.0,1255.0,1200.0],"speaker":"Director"},{"id":"0002_t4","bbox":[320.0,1020.0,530.0,1240.0],"speaker":"Director"},{"id":"0002_t5","bbox":[160.0,1130.0,385.0,1362.0],"speaker":"Director"},{"id":"0002_t6","bbox":[680.0,1395.0,835.0,1535.0],"speaker":"Director"},{"id":"0002_t7","bbox":[160.0,1400.0,360.0,1650.0],"speaker":"Director"}]},"0003.png":{"src":"assets/0003.jpg","w":1414,"h":2000,"panels":[[158.0,0.0,1252.0,705.0],[158.0,732.0,1252.0,1245.0],[735.0,1275.0,1255.0,2000.0],[0.0,1275.0,722.0,2000.0]],"texts":[{"id":"0003_t0","bbox":[1050.0,105.0,1225.0,378.0],"speaker":"Saito"},{"id":"0003_t1","bbox":[160.0,330.0,430.0,700.0],"speaker":"Saito"},{"id":"0003_t2","bbox":[1000.0,1275.0,1255.0,1540.0],"speaker":"Director"},{"id":"0003_t3","bbox":[750.0,1635.0,955.0,1900.0],"speaker":"Director"},{"id":"0003_t4","bbox":[542.0,1345.0,710.0,1500.0],"speaker":"Director"},{"id":"0003_t5","bbox":[105.0,1578.0,310.0,1835.0],"speaker":"Saito"}]},"0004.png":{"src":"assets/0004.jpg","w":1414,"h":2000,"panels":[[713.0,0.0,1414.0,725.0],[160.0,0.0,703.0,725.0],[160.0,758.0,1260.0,1185.0],[968.0,1215.0,1260.0,2000.0],[530.0,1215.0,958.0,2000.0],[160.0,1215.0,522.0,2000.0]],"texts":[{"id":"0004_t0","bbox":[530.0,100.0,692.0,320.0],"speaker":"Saito"},{"id":"0004_t1","bbox":[160.0,415.0,408.0,725.0],"speaker":"Saito"},{"id":"0004_t2","bbox":[1158.0,1215.0,1260.0,1390.0],"speaker":"Saito"},{"id":"0004_t3","bbox":[965.0,1290.0,1150.0,1525.0],"speaker":"Saito"},{"id":"0004_t4","bbox":[395.0,1215.0,522.0,1455.0],"speaker":"Night-shift doctor"},{"id":"0004_t5","bbox":[185.0,1620.0,365.0,1880.0],"speaker":"Night-shift doctor"}]}},"shots":[{"page":"0001.png","bbox":[0.0,0.0,1414.0,2000.0],"start":0.0,"duration":1.5,"lines":[]},{"page":"0001.png","bbox":[160.0,0.0,1252.0,836.0],"start":1.5,"duration":10.879999999999999,"lines":[{"id":"0001_t0","text":"On average, interns work about 16 hours a day.","speaker":"Saito","start":0.4,"duration":3.68},{"id":"0001_t1","text":"My monthly salary is an astounding...","speaker":"Saito","start":4.38,"duration":2.64},{"id":"0001_t2","text":"459 dollars!!!","speaker":"Saito","start":7.32,"duration":2.96}]},{"page":"0001.png","bbox":[160.0,866.0,1252.0,1188.0],"start":12.38,"duration":4.12,"lines":[{"id":"0001_t3","text":"Not my daily salary. My monthly salary.","speaker":"Saito","start":0.4,"duration":3.12}]},{"page":"0001.png","bbox":[725.0,1205.0,1290.0,2000.0],"start":16.5,"duration":14.58,"lines":[{"id":"0001_t4","text":"That doesn't mean my hospital's treatment is bad. It seems public hospitals,","speaker":"Saito","start":0.4,"duration":4.56},{"id":"0001_t5","text":"pay a little more, but roughly 70% of interns at private university hospitals make under $1200 a month.","speaker":"Saito","start":5.26,"duration":8.72}]},{"page":"0001.png","bbox":[0.0,1218.0,722.0,2000.0],"start":31.08,"duration":6.9799999999999995,"lines":[{"id":"0001_t6","text":"Obviously no one could live off a salary like that with food and rent to pay for.","speaker":"Saito","start":0.4,"duration":4.88},{"id":"0001_t7","text":"So...","speaker":"Saito","start":5.58,"duration":0.8}]},{"page":"0002.png","bbox":[0.0,0.0,1414.0,2000.0],"start":38.06,"duration":1.5,"lines":[]},{"page":"0002.png","bbox":[159.0,0.0,1258.0,666.0],"start":39.56,"duration":7.54,"lines":[{"id":"0002_t0","text":"Well then, Mr. Saito...","speaker":"Director","start":0.4,"duration":2.0},{"id":"0002_t1","text":"Starting today, you will be starting a part-time shift at this hospital.","speaker":"Director","start":2.6999999999999997,"duration":4.24}]},{"page":"0002.png","bbox":[159.0,697.0,1258.0,940.0],"start":47.1,"duration":2.36,"lines":[{"id":"0002_t2","text":"Seido Hospital.","speaker":null,"start":0.4,"duration":1.36}]},{"page":"0002.png","bbox":[159.0,972.0,1258.0,1364.0],"start":49.46,"duration":11.439999999999998,"lines":[{"id":"0002_t3","text":"Eijiro Saito, 25 years old...","speaker":"Director","start":0.4,"duration":2.96},{"id":"0002_t4","text":"Graduated from Eiroku University's medical department.","speaker":"Director","start":3.6599999999999997,"duration":3.6},{"id":"0002_t5","text":"This will be your first time on duty... well...","speaker":"Director","start":7.56,"duration":3.28}]},{"page":"0002.png","bbox":[840.0,1395.0,1258.0,2000.0],"start":60.9,"duration":3.0,"lines":[]},{"page":"0002.png","bbox":[159.0,1395.0,830.0,2000.0],"start":63.9,"duration":4.9799999999999995,"lines":[{"id":"0002_t6","text":"From Eiroku, huh?","speaker":"Director","start":0.4,"duration":1.6},{"id":"0002_t7","text":"So you're one of the elite...","speaker":"Director","start":2.3000000000000003,"duration":2.08}]},{"page":"0003.png","bbox":[0.0,0.0,1414.0,2000.0],"start":68.88,"duration":1.5,"lines":[]},{"page":"0003.png","bbox":[158.0,0.0,1252.0,705.0],"start":70.38,"duration":6.42,"lines":[{"id":"0003_t0","text":"Yes, sir!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0003_t1","text":"I will try my best not to soil Eiroku's fine reputation!","speaker":"Saito","start":1.7400000000000002,"duration":4.08}]},{"page":"0003.png","bbox":[158.0,732.0,1252.0,1245.0],"start":76.8,"duration":3.0,"lines":[]},{"page":"0003.png","bbox":[735.0,1275.0,1255.0,2000.0],"start":79.8,"duration":7.78,"lines":[{"id":"0003_t2","text":"Since today's your first day, we also have someone else on duty.","speaker":"Director","start":0.4,"duration":4.08},{"id":"0003_t3","text":"Ask him how things work around here.","speaker":"Director","start":4.78,"duration":2.4}]},{"page":"0003.png","bbox":[0.0,1275.0,722.0,2000.0],"start":87.58,"duration":5.46,"lines":[{"id":"0003_t4","text":"Glad to have you on board.","speaker":"Director","start":0.4,"duration":1.68},{"id":"0003_t5","text":"This is the reality of being an intern.","speaker":"Saito","start":2.38,"duration":2.48}]},{"page":"0004.png","bbox":[0.0,0.0,1414.0,2000.0],"start":93.04,"duration":1.5,"lines":[]},{"page":"0004.png","bbox":[713.0,0.0,1414.0,725.0],"start":94.54,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,0.0,703.0,725.0],"start":96.14,"duration":5.86,"lines":[{"id":"0004_t0","text":"Pleased to meet you!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0004_t1","text":"I'm Saito and I'm here from Eiroku as a part-time doctor.","speaker":"Saito","start":1.7400000000000002,"duration":3.52}]},{"page":"0004.png","bbox":[160.0,758.0,1260.0,1185.0],"start":102.0,"duration":3.0,"lines":[]},{"page":"0004.png","bbox":[968.0,1215.0,1260.0,2000.0],"start":105.0,"duration":6.1,"lines":[{"id":"0004_t2","text":"Um I, uh...","speaker":"Saito","start":0.4,"duration":1.84},{"id":"0004_t3","text":"I'm Saito from Eiroku. I'm here for the shift.","speaker":"Saito","start":2.54,"duration":2.96}]},{"page":"0004.png","bbox":[530.0,1215.0,958.0,2000.0],"start":111.1,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,1215.0,522.0,2000.0],"start":112.7,"duration":3.7800000000000002,"lines":[{"id":"0004_t4","text":"Eat...","speaker":"Night-shift doctor","start":0.4,"duration":0.8},{"id":"0004_t5","text":"Eat when ya can eat.","speaker":"Night-shift doctor","start":1.5,"duration":1.68}]}]}</script>
+<script type="application/json" id="demo">{"pages":{"0001.png":{"src":"assets/0001.jpg","w":1414,"h":2000,"panels":[[160.0,0.0,1252.0,836.0],[160.0,866.0,1252.0,1188.0],[725.0,1205.0,1290.0,2000.0],[0.0,1218.0,722.0,2000.0]],"texts":[{"id":"0001_t0","bbox":[745.0,40.0,1215.0,160.0],"speaker":"Saito"},{"id":"0001_t1","bbox":[445.0,195.0,925.0,290.0],"speaker":"Saito"},{"id":"0001_t2","bbox":[195.0,320.0,530.0,370.0],"speaker":"Saito"},{"id":"0001_t3","bbox":[1032.0,852.0,1220.0,1077.0],"speaker":"Saito"},{"id":"0001_t4","bbox":[1033.0,1200.0,1288.0,1490.0],"speaker":"Saito"},{"id":"0001_t5","bbox":[722.0,1203.0,992.0,1530.0],"speaker":"Saito"},{"id":"0001_t6","bbox":[428.0,1203.0,680.0,1500.0],"speaker":"Saito"},{"id":"0001_t7","bbox":[62.0,1622.0,168.0,1848.0],"speaker":"Saito"}]},"0002.png":{"src":"assets/0002.jpg","w":1414,"h":2000,"panels":[[159.0,0.0,1258.0,666.0],[159.0,697.0,1258.0,940.0],[159.0,972.0,1258.0,1364.0],[840.0,1395.0,1258.0,2000.0],[159.0,1395.0,830.0,2000.0]],"texts":[{"id":"0002_t0","bbox":[1075.0,90.0,1228.0,320.0],"speaker":"Director"},{"id":"0002_t1","bbox":[160.0,335.0,465.0,665.0],"speaker":"Director"},{"id":"0002_t2","bbox":[975.0,681.0,1232.0,736.0],"speaker":null},{"id":"0002_t3","bbox":[975.0,975.0,1255.0,1200.0],"speaker":"Director"},{"id":"0002_t4","bbox":[320.0,1020.0,530.0,1240.0],"speaker":"Director"},{"id":"0002_t5","bbox":[160.0,1130.0,385.0,1362.0],"speaker":"Director"},{"id":"0002_t6","bbox":[680.0,1395.0,835.0,1535.0],"speaker":"Director"},{"id":"0002_t7","bbox":[160.0,1400.0,360.0,1650.0],"speaker":"Director"}]},"0003.png":{"src":"assets/0003.jpg","w":1414,"h":2000,"panels":[[158.0,0.0,1252.0,705.0],[158.0,732.0,1252.0,1245.0],[735.0,1275.0,1255.0,2000.0],[0.0,1275.0,722.0,2000.0]],"texts":[{"id":"0003_t0","bbox":[1050.0,105.0,1225.0,378.0],"speaker":"Saito"},{"id":"0003_t1","bbox":[160.0,330.0,430.0,700.0],"speaker":"Saito"},{"id":"0003_t2","bbox":[1000.0,1275.0,1255.0,1540.0],"speaker":"Director"},{"id":"0003_t3","bbox":[750.0,1635.0,955.0,1900.0],"speaker":"Director"},{"id":"0003_t4","bbox":[542.0,1345.0,710.0,1500.0],"speaker":"Director"},{"id":"0003_t5","bbox":[105.0,1578.0,310.0,1835.0],"speaker":"Saito"}]},"0004.png":{"src":"assets/0004.jpg","w":1414,"h":2000,"panels":[[713.0,0.0,1414.0,725.0],[160.0,0.0,703.0,725.0],[160.0,758.0,1260.0,1185.0],[968.0,1215.0,1260.0,2000.0],[530.0,1215.0,958.0,2000.0],[160.0,1215.0,522.0,2000.0]],"texts":[{"id":"0004_t0","bbox":[530.0,100.0,692.0,320.0],"speaker":"Saito"},{"id":"0004_t1","bbox":[160.0,415.0,408.0,725.0],"speaker":"Saito"},{"id":"0004_t2","bbox":[1158.0,1215.0,1260.0,1390.0],"speaker":"Saito"},{"id":"0004_t3","bbox":[965.0,1290.0,1150.0,1525.0],"speaker":"Saito"},{"id":"0004_t4","bbox":[395.0,1215.0,522.0,1455.0],"speaker":"Night-shift doctor"},{"id":"0004_t5","bbox":[185.0,1620.0,365.0,1880.0],"speaker":"Night-shift doctor"}]}},"shots":[{"page":"0001.png","bbox":[0.0,0.0,1414.0,2000.0],"start":0.0,"duration":1.5,"lines":[]},{"page":"0001.png","bbox":[160.0,0.0,1252.0,836.0],"start":1.5,"duration":10.88,"lines":[{"id":"0001_t0","text":"On average, interns work about 16 hours a day.","speaker":"Saito","start":0.4,"duration":3.68},{"id":"0001_t1","text":"My monthly salary is an astounding...","speaker":"Saito","start":4.38,"duration":2.64},{"id":"0001_t2","text":"459 dollars!!!","speaker":"Saito","start":7.32,"duration":2.96}]},{"page":"0001.png","bbox":[160.0,866.0,1252.0,1188.0],"start":12.38,"duration":4.12,"lines":[{"id":"0001_t3","text":"Not my daily salary. My monthly salary.","speaker":"Saito","start":0.4,"duration":3.12}]},{"page":"0001.png","bbox":[725.0,1205.0,1290.0,2000.0],"start":16.5,"duration":14.58,"lines":[{"id":"0001_t4","text":"That doesn't mean my hospital's treatment is bad. It seems public hospitals,","speaker":"Saito","start":0.4,"duration":4.56},{"id":"0001_t5","text":"pay a little more, but roughly 70% of interns at private university hospitals make under $1200 a month.","speaker":"Saito","start":5.26,"duration":8.72}]},{"page":"0001.png","bbox":[0.0,1218.0,722.0,2000.0],"start":31.08,"duration":6.9799999999999995,"lines":[{"id":"0001_t6","text":"Obviously no one could live off a salary like that with food and rent to pay for.","speaker":"Saito","start":0.4,"duration":4.88},{"id":"0001_t7","text":"So...","speaker":"Saito","start":5.58,"duration":0.8}]},{"page":"0002.png","bbox":[0.0,0.0,1414.0,2000.0],"start":38.06,"duration":1.5,"lines":[]},{"page":"0002.png","bbox":[159.0,0.0,1258.0,666.0],"start":39.56,"duration":7.54,"lines":[{"id":"0002_t0","text":"Well then, Mr. Saito...","speaker":"Director","start":0.4,"duration":2.0},{"id":"0002_t1","text":"Starting today, you will be starting a part-time shift at this hospital.","speaker":"Director","start":2.6999999999999997,"duration":4.24}]},{"page":"0002.png","bbox":[159.0,697.0,1258.0,940.0],"start":47.1,"duration":2.36,"lines":[{"id":"0002_t2","text":"Seido Hospital.","speaker":null,"start":0.4,"duration":1.36}]},{"page":"0002.png","bbox":[159.0,972.0,1258.0,1364.0],"start":49.46,"duration":11.439999999999998,"lines":[{"id":"0002_t3","text":"Eijiro Saito, 25 years old...","speaker":"Director","start":0.4,"duration":2.96},{"id":"0002_t4","text":"Graduated from Eiroku University's medical department.","speaker":"Director","start":3.66,"duration":3.6},{"id":"0002_t5","text":"This will be your first time on duty... well...","speaker":"Director","start":7.56,"duration":3.28}]},{"page":"0002.png","bbox":[840.0,1395.0,1258.0,2000.0],"start":60.9,"duration":3.0,"lines":[]},{"page":"0002.png","bbox":[159.0,1395.0,830.0,2000.0],"start":63.9,"duration":4.9799999999999995,"lines":[{"id":"0002_t6","text":"From Eiroku, huh?","speaker":"Director","start":0.4,"duration":1.6},{"id":"0002_t7","text":"So you're one of the elite...","speaker":"Director","start":2.3000000000000003,"duration":2.08}]},{"page":"0003.png","bbox":[0.0,0.0,1414.0,2000.0],"start":68.88,"duration":1.5,"lines":[]},{"page":"0003.png","bbox":[158.0,0.0,1252.0,705.0],"start":70.38,"duration":6.42,"lines":[{"id":"0003_t0","text":"Yes, sir!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0003_t1","text":"I will try my best not to soil Eiroku's fine reputation!","speaker":"Saito","start":1.7400000000000002,"duration":4.08}]},{"page":"0003.png","bbox":[158.0,732.0,1252.0,1245.0],"start":76.8,"duration":3.0,"lines":[]},{"page":"0003.png","bbox":[735.0,1275.0,1255.0,2000.0],"start":79.8,"duration":7.78,"lines":[{"id":"0003_t2","text":"Since today's your first day, we also have someone else on duty.","speaker":"Director","start":0.4,"duration":4.08},{"id":"0003_t3","text":"Ask him how things work around here.","speaker":"Director","start":4.78,"duration":2.4}]},{"page":"0003.png","bbox":[0.0,1275.0,722.0,2000.0],"start":87.58,"duration":5.46,"lines":[{"id":"0003_t4","text":"Glad to have you on board.","speaker":"Director","start":0.4,"duration":1.68},{"id":"0003_t5","text":"This is the reality of being an intern.","speaker":"Saito","start":2.38,"duration":2.48}]},{"page":"0004.png","bbox":[0.0,0.0,1414.0,2000.0],"start":93.04,"duration":1.5,"lines":[]},{"page":"0004.png","bbox":[713.0,0.0,1414.0,725.0],"start":94.54,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,0.0,703.0,725.0],"start":96.14,"duration":5.86,"lines":[{"id":"0004_t0","text":"Pleased to meet you!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0004_t1","text":"I'm Saito and I'm here from Eiroku as a part-time doctor.","speaker":"Saito","start":1.7400000000000002,"duration":3.52}]},{"page":"0004.png","bbox":[160.0,758.0,1260.0,1185.0],"start":102.0,"duration":3.0,"lines":[]},{"page":"0004.png","bbox":[968.0,1215.0,1260.0,2000.0],"start":105.0,"duration":6.1,"lines":[{"id":"0004_t2","text":"Um I, uh...","speaker":"Saito","start":0.4,"duration":1.84},{"id":"0004_t3","text":"I'm Saito from Eiroku. I'm here for the shift.","speaker":"Saito","start":2.54,"duration":2.96}]},{"page":"0004.png","bbox":[530.0,1215.0,958.0,2000.0],"start":111.1,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,1215.0,522.0,2000.0],"start":112.7,"duration":3.78,"lines":[{"id":"0004_t4","text":"Eat...","speaker":"Night-shift doctor","start":0.4,"duration":0.8},{"id":"0004_t5","text":"Eat when ya can eat.","speaker":"Night-shift doctor","start":1.5,"duration":1.68}]}]}</script>
 <script>
 (() => {
   const demo = JSON.parse(document.getElementById("demo").textContent);

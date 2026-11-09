@@ -1,8 +1,9 @@
-"""Image→video clip generation, with Wan2.2 TI2V-5B via mlx-video or through OpenRouter.
+"""Image→video clip generation, with Wan2.2 TI2V-5B via mlx-video, OpenRouter or llm-connect.
 
 Local: one subprocess per clip, so memory (16 GB shared) is released between clips.
 Job: {"model_dir": "...", "items": [{"id", "image", "prompt", "width", "height", "frames", "steps", "seed", "out"}]}
 OpenRouter: {"backend": "openrouter", "model", "poll_interval_s", "poll_timeout_s", "items": [same]}
+llm-connect: same, with "backend": "connect", "provider" and "script".
 """
 
 from __future__ import annotations
@@ -145,10 +146,33 @@ def run_openrouter(job: dict) -> None:
             print(f"[{n}/{len(items)}] {item['id']} done", file=sys.stderr)
 
 
+def run_connect(job: dict) -> None:
+    from .connect import generate
+    from .openrouter import reported
+
+    items = job["items"]
+    with reported():
+        for n, item in enumerate(items, 1):
+            out = Path(item["out"])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            print(f"[{n}/{len(items)}] {item['id']} submitted to {job['model']} on {job['provider']}", file=sys.stderr)
+            source = out.with_suffix(".src.mp4")
+            try:
+                request = {k: item[k] for k in ("id", "image", "prompt", "width", "height", "frames", "seed")}
+                generate(job, "video", request, source, poll_interval_s=job["poll_interval_s"], poll_timeout_s=job["poll_timeout_s"])
+                fit_clip(source, item)
+            finally:
+                source.unlink(missing_ok=True)
+            print(f"[{n}/{len(items)}] {item['id']} done", file=sys.stderr)
+
+
 def main() -> None:
     job = json.loads(Path(sys.argv[1]).read_text())
     if job.get("backend") == "openrouter":
         run_openrouter(job)
+        return
+    if job.get("backend") == "connect":
+        run_connect(job)
         return
     items = job["items"]
     started = time.time()

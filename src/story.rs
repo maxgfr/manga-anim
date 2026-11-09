@@ -25,7 +25,7 @@ use crate::backend::Backend;
 use crate::captions::wrap;
 use crate::home::{caption_font, data_dir, slugify};
 use crate::project::{Direction, PageRef, Project, ProjectConfig};
-use crate::{characters, worker};
+use crate::{characters, connect, worker};
 
 pub const PAGE_W: u32 = 1500;
 pub const PAGE_H: u32 = 2120;
@@ -524,6 +524,14 @@ struct OpenRouterDrawJob<'a> {
     items: Vec<DrawItem>,
 }
 
+/// Never holds an API key: the worker reads it from the environment.
+#[derive(Serialize)]
+struct ConnectDrawJob<'a> {
+    #[serde(flatten)]
+    connect: connect::Fields<'a>,
+    items: Vec<DrawItem>,
+}
+
 /// Draws the missing panels (content-addressed cache in `panels/`), composes the pages,
 /// writes `pages/`, `analysis/` and `project.toml`. Returns the project and the number of gray panels.
 pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
@@ -585,6 +593,12 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
                 println!("{} panels to draw with {model} on OpenRouter (billed per use; prompts and character references are sent to third parties)", items.len());
                 // The main venv is enough: this path does not use mflux.
                 worker::run("draw_openrouter", &OpenRouterDrawJob { model, items }, &job_path)?;
+            }
+            Backend::Connect { provider, model } => {
+                opts.backend.check_key()?;
+                let script = connect::ensure_worker()?;
+                println!("{} panels to draw with {model} on {provider} (billed per use; prompts and character references are sent to {provider})", items.len());
+                worker::run("draw_connect", &ConnectDrawJob { connect: connect::Fields::new(provider, model, &script), items }, &job_path)?;
             }
         }
     }
@@ -656,6 +670,14 @@ mod tests {
         assert_ne!(key(&x), key(&y));
         // Steps do not exist on OpenRouter: changing them must not bill a new panel.
         assert_eq!(panel_params("a", 16, 32, 7, 4, &x), panel_params("a", 16, 32, 7, 8, &x));
+    }
+
+    #[test]
+    fn connect_panel_key_depends_on_provider_and_model() {
+        let key = |provider: &str, model: &str| panel_params("a", 16, 32, 7, 4, &Backend::Connect { provider: provider.into(), model: model.into() });
+        assert_eq!(key("fal", "m"), "a|16x32|7|0|connect|fal|m");
+        assert_ne!(key("fal", "m"), key("openai", "m"));
+        assert_ne!(key("fal", "m"), key("fal", "n"));
     }
 
     #[test]

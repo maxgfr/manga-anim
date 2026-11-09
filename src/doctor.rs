@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::{animate, backend, story};
+use crate::{animate, backend, catalog, connect, story};
 use crate::home::{app_dir, cache_dir, caption_font, data_dir, venv_dir, workers_dir};
 
 fn tool(name: &str, args: &[&str]) -> Option<String> {
@@ -74,6 +74,19 @@ pub fn run() {
     line(flux, "FLUX.2 klein (drawing)", if flux { "installed" } else { "optional, for manga story: manga models install flux2 (~15 GB, ~5 GB kept)" });
     let key = backend::key_configured();
     line(key, "OpenRouter key", if key { "set (--backend openrouter is billed and sends data to third parties)" } else { "optional: export OPENROUTER_API_KEY for --backend openrouter" });
+    let node = connect::node_version();
+    let node_ok = node.as_deref().is_some_and(connect::node_is_recent);
+    line(node_ok, "Node.js", &match &node {
+        Some(v) if node_ok => format!("{v} (only for --backend connect)"),
+        Some(v) => format!("{v} is too old for --backend connect (needs 22.12 or later)"),
+        None => "optional: brew install node, only for --backend connect".to_string(),
+    });
+    let deps = connect::dependencies_ready();
+    line(deps, "llm-connect worker", if deps { "ready" } else { "optional: installed automatically on first --backend connect (npm ci)" });
+    let keys = backend::connect_keys_set();
+    line(!keys.is_empty(), "connect keys", &if keys.is_empty() { "optional: none set (FAL_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, REPLICATE_API_TOKEN, ELEVENLABS_API_KEY)".to_string() } else { format!("set: {} (--backend connect is billed and sends data to third parties)", keys.join(", ")) });
+    let llm_models = catalog::available();
+    line(llm_models.is_some(), "llm-models", llm_models.unwrap_or("optional: brew install maxgfr/tap/llm-models, for manga models search"));
 
     println!();
     let ram = sysctl("hw.memsize").map(|b| b as f64 / 1024f64.powi(3));

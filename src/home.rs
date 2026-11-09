@@ -73,6 +73,12 @@ pub fn draw_venv_dir() -> PathBuf {
     if is_installed() { data_dir().join("venv-draw") } else { workers_dir().join("draw/.venv") }
 }
 
+/// The Node worker and its `node_modules`: in the repo, or in the data folder if the code is
+/// installed (the install prefix is replaced on every update).
+pub fn connect_dir() -> PathBuf {
+    if is_installed() { data_dir().join("connect") } else { workers_dir().join("connect") }
+}
+
 /// Font used for captions. Arial Unicode covers Latin, kana, kanji and hangul.
 pub fn caption_font() -> PathBuf {
     if let Ok(font) = std::env::var("MANGA_FONT") {

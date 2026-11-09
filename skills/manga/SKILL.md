@@ -21,11 +21,12 @@ Editing and rendering always stay local.
 | Mode | Command | When |
 |---|---|---|
 | **local** (default) | `manga analyze <name>` (Magi) or `--detector vision` | Nothing leaves the Mac |
-| **api** | `manga analyze <name> --detector api` | Automatic processing without the Magi model; requires `ant auth login` or `ANTHROPIC_API_KEY`, paid |
+| **api** | `manga analyze <name> --detector api` | Automatic processing without the Magi model; requires `ant auth login` or `ANTHROPIC_API_KEY`, paid. `--provider openrouter\|openai\|google --model <id>` reviews with another vision model, paid by that provider |
 | **claude-code** | You, see below | The user drives from Claude Code and has no API key |
 
-In `api` and `claude-code`, the pages are sent to Anthropic. Do not choose these modes unless the
-user has asked for them, especially for personal or unpublished pages.
+In `api` and `claude-code`, the pages are sent to Anthropic (with `--provider`, to that provider and,
+for OpenRouter, to the company serving the model). Do not choose these modes unless the user has
+asked for them, especially for personal or unpublished pages.
 
 **claude-code mode**, instead of steps 3 and 4:
 
@@ -61,6 +62,25 @@ would be sent, and let the user pick the model. There is no default model.
 
 The cache key includes backend and model. On a 401, 402 or failed job, relay the one-line error; what
 was finished stays cached, so rerunning does not pay for it again.
+
+## Other providers (llm-connect)
+
+`--backend connect --provider <p> --model <id>` runs the same steps directly on a provider, through a
+small Node worker (Node 22.12+, `npm ci` on first use). It is **billed per use by that provider and sends
+it the data** (panels, prompts, character references, dialogue text). Same rule: never choose it on your
+own, ask first and let the user pick the provider and model. There is no `--model latest`.
+
+| Step | Providers |
+|---|---|
+| Animation (`manga render`) | fal, google, xai, replicate |
+| Voices (`manga voice`) | fal, openai, google, elevenlabs |
+| Drawing (`manga story build`) | fal, openai, google, xai, replicate |
+
+Keys come from `FAL_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `REPLICATE_API_TOKEN` or
+`ELEVENLABS_API_KEY`. A provider that does not offer a step gets a one-line error naming those that do.
+
+`manga models search <video|image|speech|vision> [query] [--provider p]` lists current model ids and
+prices for free through the `llm-models` CLI (or `npx llm-models`).
 
 ## Pipeline
 

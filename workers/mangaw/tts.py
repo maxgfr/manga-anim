@@ -1,8 +1,8 @@
-"""Speech synthesis, locally with Kokoro-82M (mlx-audio) or through OpenRouter.
+"""Speech synthesis, locally with Kokoro-82M (mlx-audio), through OpenRouter or llm-connect.
 
 Job: {"model": "...", "items": [{"id", "text", "voice", "speed", "out"}], "results": "/…/durations.json"}
 Local: the language comes from the first letter of the voice (ff_siwis → f = French).
-OpenRouter: the job also has "backend": "openrouter", and voices are the model's own ids. The
+OpenRouter and llm-connect: the job also has "backend", and voices are the model's own ids. The
 results file is updated after each line, so an interrupted run keeps the lines already paid for.
 """
 
@@ -18,17 +18,20 @@ from pathlib import Path
 SAMPLE_RATE = 24000
 
 
-def mp3_to_wav(mp3: Path, item: dict) -> float:
+def to_wav(source: Path, item: dict, input_format: str | None = None) -> float:
     """Writes the pipeline's WAV (mono, 16-bit, SAMPLE_RATE) and returns its real duration.
 
-    MP3 is requested because it describes itself: the docs give no sample rate for raw PCM.
+    `input_format` names a format that must not be guessed; otherwise ffmpeg reads the container.
     Speed is applied here because providers either ignore `speed` or reject non-default values.
     """
     from .openrouter import Error
 
     out = Path(item["out"])
     tmp = out.with_suffix(".tmp.wav")
-    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "mp3", "-i", str(mp3)]
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y"]
+    if input_format:
+        cmd += ["-f", input_format]
+    cmd += ["-i", str(source)]
     if abs(item["speed"] - 1.0) > 1e-3:
         cmd += ["-filter:a", f"atempo={item['speed']}"]
     cmd += ["-ar", str(SAMPLE_RATE), "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav", str(tmp)]
@@ -43,7 +46,7 @@ def mp3_to_wav(mp3: Path, item: dict) -> float:
         duration = w.getnframes() / w.getframerate()
     if duration <= 0:
         tmp.unlink(missing_ok=True)
-        raise Error(f"OpenRouter returned empty audio for {item['id']}")
+        raise Error(f"the provider returned empty audio for {item['id']}")
     tmp.rename(out)
     return duration
 
@@ -71,9 +74,30 @@ def run_openrouter(job: dict) -> None:
             mp3 = out.with_suffix(".tmp.mp3")
             try:
                 mp3.write_bytes(raw)
-                durations[item["id"]] = mp3_to_wav(mp3, item)
+                # MP3 is requested because it describes itself: the docs give no sample rate for raw PCM.
+                durations[item["id"]] = to_wav(mp3, item, "mp3")
             finally:
                 mp3.unlink(missing_ok=True)
+            write_results(job["results"], durations)
+            print(f"[{n}/{len(items)}] {item['id']} {durations[item['id']]:.1f}s  {item['text'][:60]}", file=sys.stderr)
+
+
+def run_connect(job: dict) -> None:
+    from .connect import generate
+    from .openrouter import reported
+
+    items = job["items"]
+    durations = {}
+    with reported():
+        for n, item in enumerate(items, 1):
+            out = Path(item["out"])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            source = out.with_suffix(".src")
+            try:
+                generate(job, "speech", {"text": item["text"], "voice": item["voice"]}, source)
+                durations[item["id"]] = to_wav(source, item)
+            finally:
+                source.unlink(missing_ok=True)
             write_results(job["results"], durations)
             print(f"[{n}/{len(items)}] {item['id']} {durations[item['id']]:.1f}s  {item['text'][:60]}", file=sys.stderr)
 
@@ -82,6 +106,9 @@ def main() -> None:
     job = json.loads(Path(sys.argv[1]).read_text())
     if job.get("backend") == "openrouter":
         run_openrouter(job)
+        return
+    if job.get("backend") == "connect":
+        run_connect(job)
         return
     import numpy as np
     import soundfile as sf

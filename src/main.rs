@@ -7,7 +7,9 @@ mod analysis;
 mod animate;
 mod backend;
 mod captions;
+mod catalog;
 mod characters;
+mod connect;
 mod doctor;
 mod home;
 mod library;
@@ -27,7 +29,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
-use crate::backend::{Backend, BackendKind};
+use crate::backend::{Backend, BackendKind, Kind, Review};
 use crate::project::{Direction, PagePos, Project};
 use crate::timeline::{Mode, Timeline};
 
@@ -67,12 +69,18 @@ enum Cmd {
     /// Detect panels and bubbles, read the text (OCR), attribute lines to speakers.
     Analyze {
         project: String,
-        /// magi (local, characters), vision (local, fast) or api (vision + proofreading by the Claude API).
+        /// magi (local, characters), vision (local, fast) or api (vision + proofreading by the Claude API, or another provider).
         #[arg(long, default_value = "magi")]
         detector: String,
         /// Re-analyze even pages already analyzed (overwrites corrections).
         #[arg(long)]
         force: bool,
+        /// With --detector api: anthropic (default), openrouter, openai or google (billed, sends the pages to that provider).
+        #[arg(long)]
+        provider: Option<String>,
+        /// With --detector api and a --provider other than anthropic: a vision model id.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Open the web reader to check and correct the analysis.
     Read {
@@ -87,10 +95,13 @@ enum Cmd {
         project: String,
         #[arg(long)]
         force: bool,
-        /// local (Kokoro) or openrouter (billed, sends the text to third parties; voices in cast.toml are the model's own).
+        /// local (Kokoro), openrouter or connect (billed, send the text to third parties; voices in cast.toml are the model's own).
         #[arg(long, value_enum, default_value = "local")]
         backend: BackendKind,
-        /// OpenRouter model id, required with --backend openrouter.
+        /// With --backend connect: fal, openai, google or elevenlabs.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Model id, required with --backend openrouter or connect.
         #[arg(long)]
         model: Option<String>,
     },
@@ -150,10 +161,13 @@ enum Cmd {
         /// Maximum area of an animated clip, in pixels.
         #[arg(long, default_value_t = 640 * 352)]
         max_area: u32,
-        /// Where animated clips are generated: local (Wan2.2) or openrouter (billed, sends panels to third parties).
+        /// Where animated clips are generated: local (Wan2.2), openrouter or connect (billed, send panels to third parties).
         #[arg(long, value_enum, default_value = "local")]
         backend: BackendKind,
-        /// OpenRouter model id, required with --backend openrouter.
+        /// With --backend connect: fal, google, xai or replicate.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Model id, required with --backend openrouter or connect.
         #[arg(long)]
         model: Option<String>,
     },
@@ -275,10 +289,13 @@ enum StoryCmd {
         no_draw: bool,
         #[arg(long, default_value_t = 4)]
         steps: u32,
-        /// Where panels are drawn: local (FLUX.2 klein) or openrouter (billed, sends prompts and character references to third parties).
+        /// Where panels are drawn: local (FLUX.2 klein), openrouter or connect (billed, send prompts and character references to third parties).
         #[arg(long, value_enum, default_value = "local")]
         backend: BackendKind,
-        /// OpenRouter model id, required with --backend openrouter.
+        /// With --backend connect: fal, openai, google, xai or replicate.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Model id, required with --backend openrouter or connect.
         #[arg(long)]
         model: Option<String>,
     },
@@ -292,6 +309,19 @@ enum ModelsCmd {
         /// Transformer quantization: 4 (suits 16 GB) or 8 (quality, 24 GB and up).
         #[arg(long, default_value_t = 4, value_parser = quantization_bits)]
         bits: u32,
+    },
+    /// Search the current model catalogs with prices, through the llm-models CLI (free).
+    Search {
+        #[arg(value_enum)]
+        kind: catalog::Kind,
+        /// Text to look for in the model name or id.
+        query: Option<String>,
+        /// Only this provider's models.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Rows shown, cheapest first (0 for all).
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
     },
 }
 
@@ -309,6 +339,9 @@ struct AnalyzeJob {
     lang: String,
     direction: Direction,
     detector: String,
+    /// Absent for the default Anthropic reviewer. Never holds an API key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review: Option<Review>,
     character_bank: Vec<BankEntry>,
     pages: Vec<AnalyzePage>,
 }
@@ -326,7 +359,7 @@ struct AnalyzePage {
     prefix: String,
 }
 
-fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
+fn analyze(project: &Project, detector: &str, force: bool, review: Option<Review>) -> Result<()> {
     if !matches!(detector, "magi" | "vision" | "api") {
         bail!("unknown detector: {detector} (magi, vision or api)");
     }
@@ -352,11 +385,16 @@ fn analyze(project: &Project, detector: &str, force: bool) -> Result<()> {
     // Character bank: characters/<Name>.png, used to name the speakers.
     let character_bank: Vec<BankEntry> =
         characters::bank(project).into_iter().map(|(name, p)| BankEntry { name, image: p.to_string_lossy().into() }).collect();
+    if let Some(review) = &review {
+        review.check_key()?;
+        println!("reviewing with {} on {} (billed per use; the pages are sent to this provider)", review.model, review.provider);
+    }
     println!("analyzing {} pages ({detector}, {} known characters)", pages.len(), character_bank.len());
     let job = AnalyzeJob {
         lang: project.cfg.lang.clone(),
         direction: project.cfg.direction,
         detector: detector.into(),
+        review,
         character_bank,
         pages,
     };
@@ -513,10 +551,13 @@ fn dispatch() -> Result<()> {
                 }
             }
         },
-        Cmd::Analyze { project, detector, force } => analyze(&Project::open(&project)?, &detector, force)?,
+        Cmd::Analyze { project, detector, force, provider, model } => {
+            let review = Review::parse(&detector, provider, model)?;
+            analyze(&Project::open(&project)?, &detector, force, review)?;
+        }
         Cmd::Read { project, port, no_open } => reader::serve(Project::open(&project)?, port, !no_open)?,
-        Cmd::Voice { project, force, backend, model } => {
-            let backend = Backend::parse(backend, model)?;
+        Cmd::Voice { project, force, backend, provider, model } => {
+            let backend = Backend::parse(backend, provider, model, Kind::Speech)?;
             voice::run(&Project::open(&project)?, force, &backend)?;
         }
         Cmd::Timeline { project, page_intro, reset } => {
@@ -542,8 +583,8 @@ fn dispatch() -> Result<()> {
             }
             tl.save(&p)?;
         }
-        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area, backend, model } => {
-            let backend = Backend::parse(backend, model)?;
+        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area, backend, provider, model } => {
+            let backend = Backend::parse(backend, provider, model, Kind::Video)?;
             let settings = animate::Settings { frames, steps, max_area, backend, ..Default::default() };
             let captions = captions || (!no_captions && style == render::Style::Panels);
             let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs };
@@ -551,7 +592,7 @@ fn dispatch() -> Result<()> {
         }
         Cmd::Run { project, detector, no_animate } => {
             let p = Project::open(&project)?;
-            analyze(&p, &detector, false)?;
+            analyze(&p, &detector, false, None)?;
             voice::run(&p, false, &Backend::Local)?;
             timeline::run(&p, &timeline::Options::default(), false)?;
             let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4 };
@@ -574,8 +615,8 @@ fn dispatch() -> Result<()> {
                 let path = story::new(&name, &Project::open(&from)?, lang, direction)?;
                 println!("script: {}\nWrite the story, then run: manga story build {}", path.display(), home::slugify(&name));
             }
-            StoryCmd::Build { name, pages, no_draw, steps, backend, model } => {
-                let backend = Backend::parse(backend, model)?;
+            StoryCmd::Build { name, pages, no_draw, steps, backend, provider, model } => {
+                let backend = Backend::parse(backend, provider, model, Kind::Image)?;
                 let (p, pending) = story::build(&name, &story::BuildOptions { pages, draw: !no_draw, steps, backend })?;
                 println!("{} pages → {}", p.cfg.pages.len(), p.path("pages").display());
                 if pending > 0 {
@@ -586,6 +627,7 @@ fn dispatch() -> Result<()> {
         },
         Cmd::Uninstall { yes } => uninstall::run(yes)?,
         Cmd::Models { cmd } => match cmd {
+            ModelsCmd::Search { kind, query, provider, limit } => catalog::search(kind, query.as_deref(), provider.as_deref(), limit)?,
             ModelsCmd::Install { model, bits } => {
                 let job_path = home::data_dir().join("models/install_job.json");
                 match model.as_str() {
@@ -649,5 +691,37 @@ mod tests {
             Cli::try_parse_from([sub, vec!["--backend", "openrouter", "--model", "a/b"]].concat()).unwrap();
         }
         assert!(Cli::try_parse_from(["manga", "voice", "p", "--backend", "nope"]).is_err());
+    }
+
+    #[test]
+    fn connect_flags_parse_on_every_step() {
+        for sub in [vec!["manga", "voice", "p"], vec!["manga", "render", "p"], vec!["manga", "story", "build", "p"]] {
+            Cli::try_parse_from([sub, vec!["--backend", "connect", "--provider", "fal", "--model", "a/b"]].concat()).unwrap();
+        }
+    }
+
+    #[test]
+    fn analyze_takes_a_review_provider() {
+        match Cli::try_parse_from(["manga", "analyze", "p", "--detector", "api", "--provider", "openrouter", "--model", "a/b"]).unwrap().cmd {
+            Cmd::Analyze { provider, model, .. } => {
+                assert_eq!(provider.as_deref(), Some("openrouter"));
+                assert_eq!(model.as_deref(), Some("a/b"));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn models_search_takes_kind_query_and_provider() {
+        match Cli::try_parse_from(["manga", "models", "search", "video", "wan", "--provider", "fal"]).unwrap().cmd {
+            Cmd::Models { cmd: ModelsCmd::Search { kind, query, provider, limit } } => {
+                assert_eq!(kind, catalog::Kind::Video);
+                assert_eq!(query.as_deref(), Some("wan"));
+                assert_eq!(provider.as_deref(), Some("fal"));
+                assert_eq!(limit, 30);
+            }
+            _ => unreachable!(),
+        }
+        assert!(Cli::try_parse_from(["manga", "models", "search", "text"]).is_err());
     }
 }

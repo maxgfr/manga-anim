@@ -140,7 +140,7 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
 
   <section id="anime">
     <h2>From manga page to anime episode</h2>
-    <p class="lede"><code>manga anime</code> is the last step. Each panel is repainted as a clean widescreen key image, animated for as long as its shot lasts, and cut full-frame with the voices and subtitles. Page four of this demo, from the same analysis and voices as the video above:</p>
+    <p class="lede"><code>manga anime</code> is the last step. Each panel is repainted as a clean key image, animated with its sound effects for as long as its shot lasts, and cut full-frame with the voices and subtitles. Page four of this demo, from the same analysis and voices as the video above. Turn the sound on:</p>
     <video class="episode" src="assets/bj-anime.mp4" poster="assets/poster-anime.jpg" controls playsinline preload="none" aria-label="Page four of Give My Regards to Black Jack as a colored, animated and voiced anime sequence"></video>
     <div class="trio">
       <figure class="raw"><img src="assets/anime-panel.jpg" alt="The original black-and-white manga panel, with sound effects lettered over the art" loading="lazy"><figcaption>The panel, with its lettering.</figcaption></figure>
@@ -157,17 +157,53 @@ manga anime bj --backend openrouter \
 manga anime bj … --keyframes-only
 
 <span class="c"># the episode, refused above 14 s of video</span>
-manga anime bj … --key-shots-only --max-seconds 14</pre>
+manga anime bj … --key-shots-only --max-seconds 18</pre>
       <table>
         <thead><tr><th scope="col">This demo</th><th scope="col">Cost</th></tr></thead>
         <tbody>
-          <tr><td>6 key images, FLUX 3</td><td>About $0.20</td></tr>
-          <tr><td>5 clips, 17 s of Wan 3.0 at 720p</td><td>About $2.10</td></tr>
-          <tr><td>1 wide shot kept as a still with a camera move</td><td>Free</td></tr>
+          <tr><td>2 remembered faces and 6 key images, FLUX 3</td><td>About $0.30</td></tr>
+          <tr><td>5 clips with sound, 18 s of Wan 3.0 at 720p</td><td>About $2.35</td></tr>
+          <tr><td>1 bowing shot kept as a still with a camera move, so without sound effects</td><td>Free</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="credit">AI-colorized and animated adaptation; the colors are invented by the model. One clip was generated twice, because the model gave a character glasses when he raised his head, which brought the real spend to $3.06. There is no exact lip sync, music or sound effects yet.</p>
+    <p class="credit">AI-colorized and animated adaptation; the colors and sound effects are invented by the models. Redrawing five images during tuning brought the real spend to $2.97. Mouths follow timing cues in the prompt, which is not exact lip sync, and there is no music yet.</p>
+  </section>
+
+  <section>
+    <h2>Sound effects, one look, the same faces</h2>
+    <p class="lede">What makes it feel like one episode instead of a series of clips.</p>
+    <div class="split">
+      <ul class="news">
+        <li><strong>Sound effects.</strong> The video model generates them with the picture, so a knock lands on the knock. They sit under the voices at the same level from shot to shot.</li>
+        <li><strong>Nothing goes missing silently.</strong> A run ends by listing the shots without sound effects and the command to fix each one.</li>
+        <li><strong>One art style.</strong> <code>anime.toml</code> pins it to one era in every prompt, and the first image becomes the reference for all the others.</li>
+        <li><strong>Remembered faces.</strong> Each named character is drawn once, then reused in every shot. The panel still decides the pose and the expression.</li>
+        <li><strong>Across episodes.</strong> <code>--style-from</code> carries the style and the faces to the next one.</li>
+      </ul>
+      <pre tabindex="0"><span class="c"># the sounds printed on the page</span>
+manga animate bj p0004_k0 \
+  --sound "knuckles knocking on a door" \
+  --characters Saito
+
+<span class="c"># the end of a run</span>
+1 shots without sound effects:
+  p0004_k1: still image, no clip. To fix:
+  manga animate bj p0004_k1 --sound "..."
+
+<span class="c"># the next episode, same look and faces</span>
+manga anime bj2 … --style-from bj</pre>
+    </div>
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Ready for TikTok and Shorts</h2>
+      <p><code>--format vertical</code> outputs 1080×1920. <code>--max-duration 60</code> stops on a whole shot, never mid-sentence, and <code>--split</code> turns a long chapter into numbered parts. Subtitles sit above the app's own buttons.</p>
+      <p>This is part one of the demo as a reading video, rendered for free. On <code>manga anime</code>, images and clips are generated in 9:16 and only what you keep is paid for.</p>
+      <p><code>manga render bj --format vertical --style panels --max-duration 60 --split</code></p>
+    </div>
+    <video src="assets/bj-vertical.mp4" poster="assets/poster-vertical.jpg" controls playsinline preload="none" style="aspect-ratio:9/16;max-height:80vh;width:auto;max-width:100%;justify-self:center" aria-label="Part one of the demo as a vertical video for phones, one panel at a time with subtitles"></video>
   </section>
 
   <section>
@@ -309,6 +345,9 @@ episode with voices. Keep it under $4.</pre>
     <p class="lede">New in this version:</p>
     <ul class="news">
       <li><code>manga anime</code>: a full-frame episode from an analyzed and voiced project, in color or black and white.</li>
+      <li>Sound effects generated with the picture, and a report of the shots that have none.</li>
+      <li>A style bible, a reference image and remembered faces, across runs and episodes.</li>
+      <li>Vertical output with a maximum length and numbered parts, for TikTok, Shorts and Reels.</li>
       <li>A vision model can write each shot's motion prompt, with <code>--direct-provider</code> and <code>--direct-model</code>.</li>
       <li><code>--dry-run</code>, <code>--keyframes-only</code> and <code>--max-seconds</code> keep the spending under control.</li>
       <li>The Claude Code skill installs with <code>npx skills</code>.</li>
@@ -331,10 +370,12 @@ episode with voices. Keep it under $4.</pre>
         <tr><td><code>read</code></td><td>Web reader to edit text, speakers and order, and listen to each line.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
         <tr><td><code>voice</code></td><td>One voice per character, from <code>cast.toml</code>.</td><td>Kokoro, OpenRouter, fal, OpenAI, Google, ElevenLabs</td><td><span class="ok">Run</span> on Kokoro and OpenRouter. <span class="mock">Tests</span> on the others.</td></tr>
         <tr><td><code>timeline</code></td><td>Builds the editable cut, keeping manual changes.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>animate</code></td><td>Marks shots for animation, with a motion prompt.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>animate</code></td><td>Marks shots for animation, with a motion prompt, sound effects and the characters in view.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
         <tr><td><code>render --style scroll</code></td><td>The full-width page scrolls as it is read.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
         <tr><td><code>render --style panels</code></td><td>One panel at a time, with zoom, pan and subtitles.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
-        <tr><td><code>anime</code></td><td>Clean 16:9 key images, clips and a full-frame episode, in color or black and white.</td><td>OpenRouter, llm-connect providers, local FLUX and Wan</td><td><span class="ok">Run</span> on OpenRouter. <span class="mock">Tests</span> on motion prompts by API. <span class="no">Not run</span> locally or through llm-connect.</td></tr>
+        <tr><td><code>render --format vertical</code></td><td>1080×1920 reading video, with <code>--max-duration</code> and numbered parts.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
+        <tr><td><code>anime</code></td><td>Clean key images, clips with sound effects and a full-frame episode, with one style and remembered faces.</td><td>OpenRouter, llm-connect providers, local FLUX and Wan</td><td><span class="ok">Run</span> on OpenRouter in landscape. <span class="mock">Tests</span> on motion prompts by API. <span class="no">Not run</span> locally or through llm-connect.</td></tr>
+        <tr><td><code>anime --format vertical</code></td><td>Images and clips generated in 9:16, up to a maximum length.</td><td>OpenRouter, llm-connect providers</td><td><span class="mock">Tests</span>, with the real binary against a fake server.</td></tr>
         <tr><td><code>run</code></td><td>Chains analyze, voice, timeline and render.</td><td>Local</td><td><span class="ok">Run</span> step by step, not chained.</td></tr>
         <tr><td><code>characters</code></td><td>Crops the characters found by Magi, to name and reuse them.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
         <tr><td><code>story new</code>, <code>build</code></td><td>A new manga drawn with a project's characters.</td><td>Local FLUX, OpenRouter, llm-connect providers</td><td><span class="ok">Run</span> on OpenRouter. <span class="mock">Tests</span> through llm-connect. <span class="no">Not run</span> with local FLUX.</td></tr>

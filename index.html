@@ -18,6 +18,7 @@
   --mist: #d9dcf2;
   --robot: #4fd3e3;
   --mina: #ff7f97;
+  --doctor: #b7f27a;
   --gutter: clamp(10px, 1.2vw, 18px);
 }
 * { box-sizing: border-box; }
@@ -53,7 +54,7 @@ code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .box.on { stroke-dasharray: none; stroke-width: 9; opacity: 1; }
 
 /* The read-along strip runs under the page like a caption track. */
-.track { list-style: none; margin: var(--gutter) 0 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; background: var(--paper); border: 4px solid var(--paper); }
+.track { list-style: none; margin: var(--gutter) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 2px; background: var(--paper); border: 4px solid var(--paper); }
 .track button { width: 100%; height: 100%; text-align: left; border: 0; padding: 14px 16px; background: var(--night); color: var(--mist); font: 400 .98rem/1.35 "Zen Kaku", sans-serif; cursor: pointer; transition: background .2s, color .2s; }
 .track b { display: block; font-size: .92rem; margin-bottom: 4px; color: var(--who, var(--lantern)); }
 .track button:hover { background: var(--night-2); }
@@ -80,6 +81,8 @@ th, td { text-align: left; padding: 14px 18px 14px 0; border-bottom: 2px solid v
 th { color: var(--paper); font-weight: 700; }
 td code, p code, li code { color: var(--lantern); font-size: .92em; }
 
+.credit { margin: 10px 0 0; font-size: .95rem; }
+.shot { display: block; width: 100%; height: auto; border: 4px solid var(--paper); }
 .close { margin-top: clamp(56px, 8vw, 120px); background: var(--lantern); color: var(--night); padding: clamp(28px, 4vw, 60px); display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: clamp(20px, 3vw, 48px); align-items: end; }
 .close h2 { color: var(--night); margin: 0 0 18px; }
 .close p { margin: 0; font-size: .98rem; max-width: 60ch; }
@@ -89,7 +92,6 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
   .page { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
   .title, .screen, .source { grid-column: 1; grid-row: auto; }
   .source { max-width: 520px; justify-self: center; }
-  .track { grid-template-columns: minmax(0, 1fr); }
   .split, .styles, .close { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .source .spot { transition: none; } }
@@ -100,7 +102,7 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
   <div class="page" id="stage">
     <div class="frame title">
       <h1>Manga pages in. Voiced video&nbsp;out.</h1>
-      <p>A command-line tool that finds the panels and speech bubbles, reads the text, voices the characters and cuts a video, locally on Apple Silicon.</p>
+      <p>A command-line tool that finds the panels and speech bubbles, reads the text, voices the characters and cuts a video. Run it on Apple Silicon, or send the heavy steps to OpenRouter.</p>
       <div class="actions">
         <button class="btn" id="sound" type="button" aria-pressed="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5v5h4l5 4v-13l-5 4H4Z"/><path d="M17 9a4.2 4.2 0 0 1 0 6"/></svg>
@@ -110,40 +112,68 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
       </div>
     </div>
     <div class="frame screen">
-      <video id="film" src="assets/midnight-scroll.mp4" poster="assets/poster-scroll.jpg" muted loop playsinline controls preload="auto" aria-label="Demo video: the comic Midnight Ramen, narrated and voiced by manga-anim"></video>
+      <video id="film" src="assets/bj-scroll.mp4" poster="assets/poster-scroll.jpg" muted loop playsinline controls preload="auto" aria-label="Demo video: pages from Give My Regards to Black Jack by Shuho Sato, voiced and cut by manga-anim"></video>
     </div>
     <div class="frame source" aria-hidden="true">
-      <img id="sheet" alt="" src="assets/0001.jpg">
+      <img id="sheet" alt="" src="assets/0001.jpg" width="1414" height="2000">
       <svg id="overlay" preserveAspectRatio="none"></svg>
     </div>
   </div>
-  <ol class="track" id="track" aria-label="Lines detected on the page. Choose one to jump to it."></ol>
+  <ol class="track" id="track" aria-label="Lines on this page. Choose one to jump to it."></ol>
+  <p class="credit">Demo pages: <em>Give My Regards to Black Jack</em> by SHUHO SATO, used under the <a href="https://densho810.com/free/">author's free-use terms</a>.</p>
 
   <section>
     <h2>Seven commands from archive to video</h2>
     <p class="lede">Every step is cached and can be resumed. The analysis and the edit are plain JSON, so you can correct a line or retime a shot and render again.</p>
     <div class="split">
       <pre tabindex="0"><span class="c"># CBZ, EPUB, PDF, CBR or a folder of images</span>
-manga import ~/Comics/midnight-ramen/ --title "Midnight Ramen"
-manga project new midnight --title "Midnight Ramen" \
-  --from ch1:p1 --to ch1:p2 --lang en
-manga analyze midnight   <span class="c"># panels, bubbles, OCR, speakers</span>
-manga read midnight      <span class="c"># web reader to check and fix it</span>
-manga voice midnight     <span class="c"># one voice per character</span>
-manga timeline midnight  <span class="c"># the edit, as timeline.json</span>
-manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
+manga import enbj001.pdf --title "Black Jack"
+manga project new bj --title "Black Jack" \
+  --from ch1:p11 --to ch1:p14 --lang en
+manga analyze bj   <span class="c"># panels, bubbles, OCR, speakers</span>
+manga read bj      <span class="c"># web reader to check and fix it</span>
+manga voice bj     <span class="c"># one voice per character</span>
+manga timeline bj  <span class="c"># the edit, as timeline.json</span>
+manga render bj    <span class="c"># out/bj.mp4</span></pre>
       <figure>
         <pre tabindex="0">{
-  "id": "0002_t1",
-  "bbox": [193, 124, 437, 209],
-  "panel": 1,
-  "text": "IT COULD BE A TRAP.",
-  "speaker": "Mina",
+  "id": "0002_t4",
+  "bbox": [320, 1020, 530, 1240],
+  "panel": 2,
+  "text": "Graduated from Eiroku University's medical department.",
+  "speaker": "Director",
   "essential": true
 }</pre>
-        <figcaption>The bubble “It could be a trap” in the demo’s <code>analysis/0002.json</code>.</figcaption>
+        <figcaption>One reviewed bubble from <code>analysis/0002.json</code>.</figcaption>
       </figure>
     </div>
+  </section>
+
+  <section>
+    <h2>Real pages need a second read</h2>
+    <p class="lede">On page two of this demo, the local OCR saw two neighbouring bubbles as one. A review splits them, restores the words and names who is talking. Choose how that review happens below.</p>
+    <div class="split">
+      <figure>
+        <pre tabindex="0"><span class="c"># Apple Vision, one box</span>
+"GRADUATED FROM EIROKU UNIVERSITY'S MEDICAL THIS WILL
+DEPARTBE YOUR MENT. FIRST TIME ON DUTY... WELL..."</pre>
+        <figcaption>Before review.</figcaption>
+      </figure>
+      <figure>
+        <pre tabindex="0"><span class="c"># after review, two bubbles</span>
+Director: "Graduated from Eiroku University's medical department."
+Director: "This will be your first time on duty... well..."</pre>
+        <figcaption>After review, in Claude Code mode.</figcaption>
+      </figure>
+    </div>
+    <table>
+      <thead><tr><th scope="col">Mode</th><th scope="col">Command</th><th scope="col">What happens</th></tr></thead>
+      <tbody>
+        <tr><td>Local</td><td><code>manga analyze bj</code></td><td>Magi v2 or Apple Vision. Nothing leaves your Mac.</td></tr>
+        <tr><td>API</td><td><code>manga analyze bj --detector api</code></td><td>Vision finds the boxes and the Claude API proofreads each page. Billed, and pages are sent to Anthropic.</td></tr>
+        <tr><td>Claude Code</td><td>the <code>manga</code> skill</td><td>Claude Code reads the pages and corrects the JSON, with no API key. Pages are sent to Anthropic.</td></tr>
+      </tbody>
+    </table>
   </section>
 
   <section class="styles">
@@ -152,19 +182,54 @@ manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
       <p>The video above uses the default style: the full-width page glides from panel to panel as it is read. With <code>--style panels</code>, each panel gets the frame to itself, with a zoom or a pan and subtitles.</p>
       <p>Same analysis, same voices: only the render changes.</p>
     </div>
-    <video src="assets/midnight-panels.mp4" poster="assets/poster-panels.jpg" controls playsinline preload="none" aria-label="The same demo rendered one panel at a time, with subtitles"></video>
+    <video src="assets/bj-panels.mp4" poster="assets/poster-panels.jpg" controls playsinline preload="none" aria-label="The same pages rendered one panel at a time, with subtitles"></video>
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Check every line in the reader</h2>
+      <p><code>manga read</code> opens a local web page with the panels and bubbles drawn over the art. Edit the text, the speaker and the order, and listen to each line.</p>
+    </div>
+    <img class="shot" src="assets/reader.jpg" width="1475" height="812" alt="The manga-anim reader showing a page with numbered bubbles and an editable list of lines" loading="lazy">
+  </section>
+
+<section class="styles">
+    <div>
+      <h2>Bring a panel to life</h2>
+      <p>Mark the shots that matter and render them as short clips. This three-second clip came from Wan 3.0 through OpenRouter, at about $0.30. The same step can run locally with Wan2.2.</p>
+      <p><code>manga render bj --backend openrouter --model alibaba/wan-3.0</code></p>
+    </div>
+    <video src="assets/anim-clip.mp4" controls playsinline loop preload="none" style="aspect-ratio:auto" aria-label="An animated panel: a doctor eats quickly while a young intern watches"></video>
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Draw a new story with the same characters</h2>
+      <p>Crops from the source pages go in as character references. You write story.json, FLUX 3 draws each panel and the tool letters the bubbles. These four panels cost about $0.10 through OpenRouter.</p>
+      <p><code>manga story build spin --backend openrouter --model black-forest-labs/flux-3-image</code></p>
+    </div>
+    <img class="shot" src="assets/spin-page.jpg" alt="A generated four-panel manga page in which the young doctor's day off is interrupted by the hospital director" loading="lazy">
+  </section>
+
+  <section class="styles">
+    <div>
+      <h2>Then dub it like any other project</h2>
+      <p>A spin-off is a normal project, so voices, editing, animation and rendering all work on it. The last panel of this one is animated.</p>
+      <p><code>manga voice spin && manga timeline spin && manga render spin</code></p>
+    </div>
+    <video src="assets/spin.mp4" controls playsinline loop preload="none" style="aspect-ratio:auto" aria-label="The generated spin-off page, voiced and rendered as a video"></video>
   </section>
 
   <section>
-    <h2>What runs on your Mac</h2>
-    <p class="lede">Needs macOS on Apple Silicon, with <code>ffmpeg</code>, <code>uv</code> and Rust to build. Models download the first time they are used, and each one keeps its own license.</p>
+    <h2>Local by default, OpenRouter when you want it</h2>
+    <p class="lede">The tool needs macOS on Apple Silicon, with <code>ffmpeg</code>, <code>uv</code> and Rust to build. Each generation step runs on your Mac or through OpenRouter with <code>--backend openrouter</code>, which is billed and sends your text and panels to third parties.</p>
     <table>
-      <thead><tr><th scope="col">Job</th><th scope="col">Model</th><th scope="col">Notes</th></tr></thead>
+      <thead><tr><th scope="col">Job</th><th scope="col">On your Mac</th><th scope="col">Through OpenRouter</th></tr></thead>
       <tbody>
-        <tr><td>Panels, bubbles, speakers</td><td>Magi v2, or Apple Vision with OpenCV</td><td>Magi is under a research license, for personal use only. Vision needs no download.</td></tr>
-        <tr><td>Voices</td><td>Kokoro-82M</td><td>About 350 MB. English, French, Japanese, Chinese, Spanish, Italian, Portuguese and Hindi.</td></tr>
-        <tr><td>Animate chosen panels (optional)</td><td>Wan2.2 TI2V-5B</td><td>About 34 GB to download, several minutes per two-second clip on 16 GB of memory.</td></tr>
-        <tr><td>Draw a spin-off (optional)</td><td>FLUX.2 [klein] 4B</td><td>About 15 GB to download, 5 GB kept.</td></tr>
+        <tr><td>Voices</td><td>Kokoro-82M, about 350 MB</td><td>Any speech model. Used here: ElevenLabs v4 Turbo.</td></tr>
+        <tr><td>Animate chosen panels</td><td>Wan2.2 TI2V-5B, about 34 GB to download</td><td>Any image-to-video model. Used here: Wan 3.0.</td></tr>
+        <tr><td>Draw a spin-off</td><td>FLUX.2 [klein] 4B, about 15 GB to download</td><td>Any image model that takes references. Used here: FLUX 3.</td></tr>
+        <tr><td>Panels, bubbles, speakers</td><td>Magi v2 (research license) or Apple Vision</td><td>Not used: review locally, with the Claude API or in Claude Code.</td></tr>
       </tbody>
     </table>
   </section>
@@ -174,11 +239,11 @@ manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
       <h2>Bring your own pages</h2>
       <a class="btn" href="https://github.com/maxgfr/manga-anim">Get manga-anim on GitHub</a>
     </div>
-    <p><em>Midnight Ramen</em> is an original two-page comic made for this demo. Its voices, framing and timing come straight from the tool; speakers were reviewed by hand. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
+    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, animated clips and spin-off art are AI-generated. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
   </footer>
 </main>
 
-<script type="application/json" id="demo">{"pages":{"0001.png":{"src":"assets/0001.jpg","w":1200,"h":1700,"panels":[[50.0,50.0,1151.0,701.0],[620.0,740.0,1151.0,1651.0],[50.0,740.0,581.0,1651.0]],"texts":[{"id":"0001_t0","bbox":[120.87627765934832,114.87126564481484,888.9659383038796,159.07268547513723],"speaker":null},{"id":"0001_t1","bbox":[775.3086417591492,842.3360886757271,992.5925925648133,931.5406967220837],"speaker":"Robot"},{"id":"0001_t2","bbox":[83.7109964325528,854.1525720423547,538.5099161102871,942.8976233804352],"speaker":"Mina"}]},"0002.png":{"src":"assets/0002.jpg","w":1200,"h":1700,"panels":[[620.0,50.0,1151.0,761.0],[50.0,50.0,581.0,761.0],[50.0,800.0,1151.0,1651.0]],"texts":[{"id":"0002_t0","bbox":[787.654321985265,121.07558045372974,980.2469123172963,212.49999904268847],"speaker":"Robot"},{"id":"0002_t1","bbox":[192.59259332227302,123.54651254039575,437.0370360712965,208.8701836021701],"speaker":"Mina"},{"id":"0002_t2","bbox":[325.7817992675118,878.882329606299,871.7825316893868,978.4883718617418],"speaker":"Mina"}]}},"shots":[{"page":"0001.png","bbox":[0.0,0.0,1200.0,1700.0],"start":0.0,"duration":1.5,"lines":[]},{"page":"0001.png","bbox":[50.0,50.0,1151.0,701.0],"start":1.5,"duration":3.6,"lines":[{"id":"0001_t0","text":"MIDNIGHT. THE CITY FINALLY SLEEPS.","speaker":null,"start":0.4,"duration":2.6}]},{"page":"0001.png","bbox":[620.0,740.0,1151.0,1651.0],"start":5.1,"duration":2.7,"lines":[{"id":"0001_t1","text":"STILL HUNGRY?","speaker":"Robot","start":0.4,"duration":1.7}]},{"page":"0001.png","bbox":[50.0,740.0,581.0,1651.0],"start":7.8,"duration":3.65,"lines":[{"id":"0001_t2","text":"ALWAYS. ESPECIALLY AT NIGHT.","speaker":"Mina","start":0.4,"duration":2.65}]},{"page":"0002.png","bbox":[0.0,0.0,1200.0,1700.0],"start":11.45,"duration":1.5,"lines":[]},{"page":"0002.png","bbox":[620.0,50.0,1151.0,761.0],"start":12.95,"duration":2.6000000000000005,"lines":[{"id":"0002_t0","text":"LOOK! A LIGHT!","speaker":"Robot","start":0.4,"duration":1.6}]},{"page":"0002.png","bbox":[50.0,50.0,581.0,761.0],"start":15.55,"duration":2.75,"lines":[{"id":"0002_t1","text":"IT COULD BE A TRAP.","speaker":"Mina","start":0.4,"duration":1.75}]},{"page":"0002.png","bbox":[50.0,800.0,1151.0,1651.0],"start":18.3,"duration":3.675,"lines":[{"id":"0002_t2","text":"A TRAP WITH NOODLES? I'M IN.","speaker":"Mina","start":0.4,"duration":2.675}]}]}</script>
+<script type="application/json" id="demo">{"pages":{"0001.png":{"src":"assets/0001.jpg","w":1414,"h":2000,"panels":[[160.0,0.0,1252.0,836.0],[160.0,866.0,1252.0,1188.0],[725.0,1205.0,1290.0,2000.0],[0.0,1218.0,722.0,2000.0]],"texts":[{"id":"0001_t0","bbox":[745.0,40.0,1215.0,160.0],"speaker":"Saito"},{"id":"0001_t1","bbox":[445.0,195.0,925.0,290.0],"speaker":"Saito"},{"id":"0001_t2","bbox":[195.0,320.0,530.0,370.0],"speaker":"Saito"},{"id":"0001_t3","bbox":[1032.0,852.0,1220.0,1077.0],"speaker":"Saito"},{"id":"0001_t4","bbox":[1033.0,1200.0,1288.0,1490.0],"speaker":"Saito"},{"id":"0001_t5","bbox":[722.0,1203.0,992.0,1530.0],"speaker":"Saito"},{"id":"0001_t6","bbox":[428.0,1203.0,680.0,1500.0],"speaker":"Saito"},{"id":"0001_t7","bbox":[62.0,1622.0,168.0,1848.0],"speaker":"Saito"}]},"0002.png":{"src":"assets/0002.jpg","w":1414,"h":2000,"panels":[[159.0,0.0,1258.0,666.0],[159.0,697.0,1258.0,940.0],[159.0,972.0,1258.0,1364.0],[840.0,1395.0,1258.0,2000.0],[159.0,1395.0,830.0,2000.0]],"texts":[{"id":"0002_t0","bbox":[1075.0,90.0,1228.0,320.0],"speaker":"Director"},{"id":"0002_t1","bbox":[160.0,335.0,465.0,665.0],"speaker":"Director"},{"id":"0002_t2","bbox":[975.0,681.0,1232.0,736.0],"speaker":null},{"id":"0002_t3","bbox":[975.0,975.0,1255.0,1200.0],"speaker":"Director"},{"id":"0002_t4","bbox":[320.0,1020.0,530.0,1240.0],"speaker":"Director"},{"id":"0002_t5","bbox":[160.0,1130.0,385.0,1362.0],"speaker":"Director"},{"id":"0002_t6","bbox":[680.0,1395.0,835.0,1535.0],"speaker":"Director"},{"id":"0002_t7","bbox":[160.0,1400.0,360.0,1650.0],"speaker":"Director"}]},"0003.png":{"src":"assets/0003.jpg","w":1414,"h":2000,"panels":[[158.0,0.0,1252.0,705.0],[158.0,732.0,1252.0,1245.0],[735.0,1275.0,1255.0,2000.0],[0.0,1275.0,722.0,2000.0]],"texts":[{"id":"0003_t0","bbox":[1050.0,105.0,1225.0,378.0],"speaker":"Saito"},{"id":"0003_t1","bbox":[160.0,330.0,430.0,700.0],"speaker":"Saito"},{"id":"0003_t2","bbox":[1000.0,1275.0,1255.0,1540.0],"speaker":"Director"},{"id":"0003_t3","bbox":[750.0,1635.0,955.0,1900.0],"speaker":"Director"},{"id":"0003_t4","bbox":[542.0,1345.0,710.0,1500.0],"speaker":"Director"},{"id":"0003_t5","bbox":[105.0,1578.0,310.0,1835.0],"speaker":"Saito"}]},"0004.png":{"src":"assets/0004.jpg","w":1414,"h":2000,"panels":[[713.0,0.0,1414.0,725.0],[160.0,0.0,703.0,725.0],[160.0,758.0,1260.0,1185.0],[968.0,1215.0,1260.0,2000.0],[530.0,1215.0,958.0,2000.0],[160.0,1215.0,522.0,2000.0]],"texts":[{"id":"0004_t0","bbox":[530.0,100.0,692.0,320.0],"speaker":"Saito"},{"id":"0004_t1","bbox":[160.0,415.0,408.0,725.0],"speaker":"Saito"},{"id":"0004_t2","bbox":[1158.0,1215.0,1260.0,1390.0],"speaker":"Saito"},{"id":"0004_t3","bbox":[965.0,1290.0,1150.0,1525.0],"speaker":"Saito"},{"id":"0004_t4","bbox":[395.0,1215.0,522.0,1455.0],"speaker":"Night-shift doctor"},{"id":"0004_t5","bbox":[185.0,1620.0,365.0,1880.0],"speaker":"Night-shift doctor"}]}},"shots":[{"page":"0001.png","bbox":[0.0,0.0,1414.0,2000.0],"start":0.0,"duration":1.5,"lines":[]},{"page":"0001.png","bbox":[160.0,0.0,1252.0,836.0],"start":1.5,"duration":10.879999999999999,"lines":[{"id":"0001_t0","text":"On average, interns work about 16 hours a day.","speaker":"Saito","start":0.4,"duration":3.68},{"id":"0001_t1","text":"My monthly salary is an astounding...","speaker":"Saito","start":4.38,"duration":2.64},{"id":"0001_t2","text":"459 dollars!!!","speaker":"Saito","start":7.32,"duration":2.96}]},{"page":"0001.png","bbox":[160.0,866.0,1252.0,1188.0],"start":12.38,"duration":4.12,"lines":[{"id":"0001_t3","text":"Not my daily salary. My monthly salary.","speaker":"Saito","start":0.4,"duration":3.12}]},{"page":"0001.png","bbox":[725.0,1205.0,1290.0,2000.0],"start":16.5,"duration":14.58,"lines":[{"id":"0001_t4","text":"That doesn't mean my hospital's treatment is bad. It seems public hospitals,","speaker":"Saito","start":0.4,"duration":4.56},{"id":"0001_t5","text":"pay a little more, but roughly 70% of interns at private university hospitals make under $1200 a month.","speaker":"Saito","start":5.26,"duration":8.72}]},{"page":"0001.png","bbox":[0.0,1218.0,722.0,2000.0],"start":31.08,"duration":6.9799999999999995,"lines":[{"id":"0001_t6","text":"Obviously no one could live off a salary like that with food and rent to pay for.","speaker":"Saito","start":0.4,"duration":4.88},{"id":"0001_t7","text":"So...","speaker":"Saito","start":5.58,"duration":0.8}]},{"page":"0002.png","bbox":[0.0,0.0,1414.0,2000.0],"start":38.06,"duration":1.5,"lines":[]},{"page":"0002.png","bbox":[159.0,0.0,1258.0,666.0],"start":39.56,"duration":7.54,"lines":[{"id":"0002_t0","text":"Well then, Mr. Saito...","speaker":"Director","start":0.4,"duration":2.0},{"id":"0002_t1","text":"Starting today, you will be starting a part-time shift at this hospital.","speaker":"Director","start":2.6999999999999997,"duration":4.24}]},{"page":"0002.png","bbox":[159.0,697.0,1258.0,940.0],"start":47.1,"duration":2.36,"lines":[{"id":"0002_t2","text":"Seido Hospital.","speaker":null,"start":0.4,"duration":1.36}]},{"page":"0002.png","bbox":[159.0,972.0,1258.0,1364.0],"start":49.46,"duration":11.439999999999998,"lines":[{"id":"0002_t3","text":"Eijiro Saito, 25 years old...","speaker":"Director","start":0.4,"duration":2.96},{"id":"0002_t4","text":"Graduated from Eiroku University's medical department.","speaker":"Director","start":3.6599999999999997,"duration":3.6},{"id":"0002_t5","text":"This will be your first time on duty... well...","speaker":"Director","start":7.56,"duration":3.28}]},{"page":"0002.png","bbox":[840.0,1395.0,1258.0,2000.0],"start":60.9,"duration":3.0,"lines":[]},{"page":"0002.png","bbox":[159.0,1395.0,830.0,2000.0],"start":63.9,"duration":4.9799999999999995,"lines":[{"id":"0002_t6","text":"From Eiroku, huh?","speaker":"Director","start":0.4,"duration":1.6},{"id":"0002_t7","text":"So you're one of the elite...","speaker":"Director","start":2.3000000000000003,"duration":2.08}]},{"page":"0003.png","bbox":[0.0,0.0,1414.0,2000.0],"start":68.88,"duration":1.5,"lines":[]},{"page":"0003.png","bbox":[158.0,0.0,1252.0,705.0],"start":70.38,"duration":6.42,"lines":[{"id":"0003_t0","text":"Yes, sir!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0003_t1","text":"I will try my best not to soil Eiroku's fine reputation!","speaker":"Saito","start":1.7400000000000002,"duration":4.08}]},{"page":"0003.png","bbox":[158.0,732.0,1252.0,1245.0],"start":76.8,"duration":3.0,"lines":[]},{"page":"0003.png","bbox":[735.0,1275.0,1255.0,2000.0],"start":79.8,"duration":7.78,"lines":[{"id":"0003_t2","text":"Since today's your first day, we also have someone else on duty.","speaker":"Director","start":0.4,"duration":4.08},{"id":"0003_t3","text":"Ask him how things work around here.","speaker":"Director","start":4.78,"duration":2.4}]},{"page":"0003.png","bbox":[0.0,1275.0,722.0,2000.0],"start":87.58,"duration":5.46,"lines":[{"id":"0003_t4","text":"Glad to have you on board.","speaker":"Director","start":0.4,"duration":1.68},{"id":"0003_t5","text":"This is the reality of being an intern.","speaker":"Saito","start":2.38,"duration":2.48}]},{"page":"0004.png","bbox":[0.0,0.0,1414.0,2000.0],"start":93.04,"duration":1.5,"lines":[]},{"page":"0004.png","bbox":[713.0,0.0,1414.0,725.0],"start":94.54,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,0.0,703.0,725.0],"start":96.14,"duration":5.86,"lines":[{"id":"0004_t0","text":"Pleased to meet you!","speaker":"Saito","start":0.4,"duration":1.04},{"id":"0004_t1","text":"I'm Saito and I'm here from Eiroku as a part-time doctor.","speaker":"Saito","start":1.7400000000000002,"duration":3.52}]},{"page":"0004.png","bbox":[160.0,758.0,1260.0,1185.0],"start":102.0,"duration":3.0,"lines":[]},{"page":"0004.png","bbox":[968.0,1215.0,1260.0,2000.0],"start":105.0,"duration":6.1,"lines":[{"id":"0004_t2","text":"Um I, uh...","speaker":"Saito","start":0.4,"duration":1.84},{"id":"0004_t3","text":"I'm Saito from Eiroku. I'm here for the shift.","speaker":"Saito","start":2.54,"duration":2.96}]},{"page":"0004.png","bbox":[530.0,1215.0,958.0,2000.0],"start":111.1,"duration":1.6,"lines":[]},{"page":"0004.png","bbox":[160.0,1215.0,522.0,2000.0],"start":112.7,"duration":3.7800000000000002,"lines":[{"id":"0004_t4","text":"Eat...","speaker":"Night-shift doctor","start":0.4,"duration":0.8},{"id":"0004_t5","text":"Eat when ya can eat.","speaker":"Night-shift doctor","start":1.5,"duration":1.68}]}]}</script>
 <script>
 (() => {
   const demo = JSON.parse(document.getElementById("demo").textContent);
@@ -188,7 +253,8 @@ manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
   const track = document.getElementById("track");
   const sound = document.getElementById("sound");
   const NS = "http://www.w3.org/2000/svg";
-  const WHO = { Robot: "var(--robot)", Mina: "var(--mina)" };
+  const WHO = { Saito: "var(--robot)", Director: "var(--mina)", "Night-shift doctor": "var(--doctor)" };
+  const INK = { Saito: "#4fd3e3", Director: "#ff7f97", "Night-shift doctor": "#b7f27a" };
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const el = (name, attrs, parent) => {
     const node = document.createElementNS(NS, name);
@@ -200,29 +266,36 @@ manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
   // Preload both pages so the swap never flashes.
   Object.values(demo.pages).forEach(p => { new Image().src = p.src; });
 
-  const lines = demo.shots.flatMap(s => s.lines.map(l => ({ ...l, at: s.start + l.start })));
-  const buttons = new Map();
-  lines.forEach(l => {
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.style.setProperty("--who", WHO[l.speaker] || "var(--lantern)");
-    const name = document.createElement("b");
-    name.textContent = l.speaker || "Narrator";
-    b.append(name, l.text);
-    b.addEventListener("click", () => {
-      film.currentTime = l.at;
-      film.play().catch(() => {});
+  const lines = demo.shots.flatMap(s => s.lines.map(l => ({ ...l, at: s.start + l.start, page: s.page })));
+  let buttons = new Map();
+
+  function drawTrack(key) {
+    track.textContent = "";
+    buttons = new Map();
+    lines.filter(l => l.page === key).forEach(l => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.style.setProperty("--who", WHO[l.speaker] || "var(--lantern)");
+      const name = document.createElement("b");
+      name.textContent = l.speaker || "Narrator";
+      b.append(name, l.text);
+      b.addEventListener("click", () => {
+        film.currentTime = l.at;
+        film.play().catch(() => {});
+      });
+      li.appendChild(b);
+      track.appendChild(li);
+      buttons.set(l.id, b);
     });
-    li.appendChild(b);
-    track.appendChild(li);
-    buttons.set(l.id, b);
-  });
+  }
 
   let page = null, spot, shade, boxes = new Map(), activeLine = null, activeBox = null;
 
   function drawPage(key) {
     page = key;
+    drawTrack(key);
+    activeLine = null;
     const p = demo.pages[key];
     sheet.src = p.src;
     overlay.setAttribute("viewBox", `0 0 ${p.w} ${p.h}`);
@@ -235,7 +308,7 @@ manga render midnight    <span class="c"># out/midnight.mp4</span></pre>
     shade = el("rect", { width: p.w, height: p.h, fill: "#15173a", "fill-opacity": ".72", mask: "url(#spotlight)" }, overlay);
     p.texts.forEach(t => {
       const [x1, y1, x2, y2] = t.bbox;
-      const color = t.speaker === "Robot" ? "#4fd3e3" : t.speaker === "Mina" ? "#ff7f97" : "#f5b83d";
+      const color = INK[t.speaker] || "#f5b83d";
       const r = el("rect", { class: "box", x: x1 - 8, y: y1 - 8, width: x2 - x1 + 16, height: y2 - y1 + 16, rx: 10, style: `stroke:${color}` }, overlay);
       boxes.set(t.id, r);
     });

@@ -294,6 +294,7 @@ test("parameter pickers", () => {
   assert.equal(pickResolution(2000, ["480p", "1K"]), "1K");
   assert.equal(pickResolution(352, []), undefined);
   assert.deepEqual(videoParams(null, { frames: 49, width: 640, height: 352, seed: 1 }), {});
+  assert.equal(videoParams({ durations: [3, 4] }, { frames: 73, width: 640, height: 352, seed: 1 }).durationS, 3);
 });
 
 test("reference checks", () => {

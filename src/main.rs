@@ -2,8 +2,10 @@
 //!
 //! Pipeline: import/source → project new → analyze → (read) → voice → timeline → render.
 //! Spin-off: characters → story new → story build → voice → timeline → render.
+//! Anime: analyze → voice → timeline → anime (key images, clips, full-frame render).
 
 mod analysis;
+mod anime;
 mod animate;
 mod backend;
 mod captions;
@@ -170,6 +172,57 @@ enum Cmd {
         /// Model id, required with --backend openrouter or connect.
         #[arg(long)]
         model: Option<String>,
+    },
+    /// Turn an analyzed and voiced project into an anime episode: clean 16:9 key images, clips, full-frame render.
+    Anime {
+        project: String,
+        /// Where key images and clips are generated: local (FLUX.2 and Wan2.2), openrouter or connect (billed, send panels to third parties).
+        #[arg(long, value_enum, default_value = "local")]
+        backend: BackendKind,
+        /// With --backend connect: a provider that serves both image and video (fal, google, xai or replicate).
+        #[arg(long)]
+        provider: Option<String>,
+        /// Image model that accepts reference images, required with --backend openrouter or connect.
+        #[arg(long)]
+        image_model: Option<String>,
+        /// Image-to-video model, required with --backend openrouter or connect unless --keyframes-only.
+        #[arg(long)]
+        video_model: Option<String>,
+        /// color: full-color anime stills; bw: clean black-and-white stills.
+        #[arg(long, value_enum, default_value = "color")]
+        style: anime::AnimeStyle,
+        /// Appearance notes added to every key image, to keep colors consistent ("Kit: red hair, green coat").
+        #[arg(long)]
+        look: Option<String>,
+        /// Write the missing motion prompts with this chat provider: openrouter, openai or google (billed).
+        #[arg(long, requires = "direct_model")]
+        direct_provider: Option<String>,
+        /// Vision model for --direct-provider.
+        #[arg(long, requires = "direct_provider")]
+        direct_model: Option<String>,
+        /// Only these shots (ids or numbers).
+        #[arg(long, value_delimiter = ',')]
+        shots: Vec<String>,
+        /// Animate only the shots marked with `manga animate`; the others keep their key image and a camera move.
+        #[arg(long)]
+        key_shots_only: bool,
+        /// Stop after the key images, to check them before paying for clips.
+        #[arg(long)]
+        keyframes_only: bool,
+        /// Refuse to start if more than this many seconds of video would be generated.
+        #[arg(long)]
+        max_seconds: Option<f64>,
+        /// Show what would be generated, without calling any model.
+        #[arg(long)]
+        dry_run: bool,
+        /// Maximum area of a clip, in pixels (default: 720p, or 640×352 with --backend local).
+        #[arg(long)]
+        max_area: Option<u32>,
+        /// Output file (default: projects/<name>/out/<name>-anime.mp4).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
     },
     /// Run analyze → voice → timeline → render in sequence.
     Run {
@@ -587,7 +640,7 @@ fn dispatch() -> Result<()> {
             let backend = Backend::parse(backend, provider, model, Kind::Video)?;
             let settings = animate::Settings { frames, steps, max_area, backend, ..Default::default() };
             let captions = captions || (!no_captions && style == render::Style::Panels);
-            let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs };
+            let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs, keyframes: Default::default() };
             render(&Project::open(&project)?, out, opts, no_animate, settings)?;
         }
         Cmd::Run { project, detector, no_animate } => {
@@ -595,8 +648,15 @@ fn dispatch() -> Result<()> {
             analyze(&p, &detector, false, None)?;
             voice::run(&p, false, &Backend::Local)?;
             timeline::run(&p, &timeline::Options::default(), false)?;
-            let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4 };
+            let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4, keyframes: Default::default() };
             render(&p, None, opts, no_animate, animate::Settings::default())?;
+        }
+        Cmd::Anime { project, backend, provider, image_model, video_model, style, look, direct_provider, direct_model, shots, key_shots_only, keyframes_only, max_seconds, dry_run, max_area, out, jobs } => {
+            let image = Backend::parse(backend, provider.clone(), image_model, Kind::Image)?;
+            let video = if keyframes_only { Backend::Local } else { Backend::parse(backend, provider, video_model, Kind::Video)? };
+            let director = anime::parse_director(direct_provider, direct_model)?;
+            let opts = anime::Options { image, video, style, look, director, shots, key_shots_only, keyframes_only, max_seconds, dry_run, max_area, out, jobs };
+            anime::run(&Project::open(&project)?, &opts)?;
         }
         Cmd::Characters { project, per_character } => {
             let p = Project::open(&project)?;

@@ -23,7 +23,7 @@ from PIL import Image
 WORKERS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(WORKERS))
 
-from mangaw import openrouter  # noqa: E402
+from mangaw import animate, openrouter  # noqa: E402
 
 KEY = "sk-or-test-secret"
 EXIT_REPORTED = 3
@@ -239,6 +239,12 @@ class Video(Case):
         self.assertTrue(frame["image_url"]["url"].startswith("data:image/png;base64,"))
         self.assertEqual(body, {"model": "acme/video", "prompt": "wind", "duration": 4, "aspect_ratio": "16:9", "resolution": "480p", "generate_audio": False, "seed": 42})
         self.assertEqual(server.count("GET", "/videos/job1"), 3)
+
+    def test_the_extra_frame_does_not_bill_another_second(self) -> None:
+        image = self.dir / "panel.png"
+        Image.new("RGB", (32, 32)).save(image)
+        item = {"image": str(image), "prompt": "wind", "width": 640, "height": 352, "frames": 73, "seed": 1}
+        self.assertEqual(animate.video_request("acme/video", item, {"supported_durations": [3, 4]})["duration"], 3)
 
     def test_only_declared_parameters_are_sent(self) -> None:
         caps = {"id": "acme/video", "supported_durations": None, "supported_resolutions": None, "supported_aspect_ratios": None, "supported_frame_images": None, "generate_audio": None, "seed": None}

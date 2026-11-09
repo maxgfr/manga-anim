@@ -1,18 +1,59 @@
 # manga-anim
 
-CLI that turns manga pages into video, locally on a Mac (Apple Silicon). Voices, animation and
-drawing can optionally run through [OpenRouter](#generation-backends) instead of local models.
+CLI that turns manga pages into a voiced reading video or a full anime episode, locally on a Mac
+(Apple Silicon) or with your own API keys: voices, animation, drawing and proofreading can run
+through [OpenRouter](#generation-backends) or [other providers](#other-providers-through-llm-connect)
+instead of local models.
+
+**[See what it does, with real examples](https://maxgfr.github.io/manga-anim/)**
 
 - **Reading video**: panel and speech bubble detection, multilingual OCR, a synthetic voice per
   character. By default the full-width page scrolls from panel to panel as the text is read
   (`--style panels`: one panel at a time, with zoom or pan, and captions).
 - **Animation**: selected panels are animated by an open source image→video model
   (Wan2.2 TI2V-5B via MLX).
+- **Anime**: `manga anime` repaints each panel as a clean 16:9 key image, animates it for as long
+  as its shot lasts, and renders a full-frame episode with the voices and subtitles.
 - **Spin-off**: a new manga with the characters of a project. Claude (skill) writes the script,
   FLUX.2 [klein] 4B draws the panels using the characters as references, and the CLI lays out the
   pages and bubbles. The result can be read, dubbed and rendered like any other project.
+- **Three ways to analyze**: local (Magi v2 or Apple Vision), proofread by an API (Claude,
+  OpenRouter, OpenAI, Google), or corrected by Claude Code without an API key.
 - **Local web reader** to check and fix the OCR, reading order and speakers.
-- **Claude Code skill** (`skills/manga`) to drive the whole pipeline in natural language.
+- **Any model with your own keys**: `manga models search` lists current models and prices, through
+  [llm-models](https://github.com/maxgfr/llm-models).
+- **Claude Code skill** (`skills/manga`) to drive the whole pipeline in natural language, including
+  model choice and budget.
+
+## What's new
+
+- `manga anime`: from an analyzed and voiced project to a full-frame episode, in color or black and
+  white, with `--dry-run`, `--max-seconds` and `--keyframes-only` to control the spending.
+- A vision model can write each shot's motion prompt (`--direct-provider`, `--direct-model`).
+- The skill installs with `npx skills add maxgfr/manga-anim --skill manga -a claude-code`.
+- A clip is no longer billed one second too long (a 3 s clip was requested as 4 s).
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `manga doctor` | Checks the tools, models and API keys. |
+| `manga source search\|chapters\|fetch` | Finds and downloads chapters from MangaDex. |
+| `manga import` | Imports CBZ, EPUB, PDF, CBR or a folder of images or chapters. |
+| `manga library` | Lists the local library. |
+| `manga project new\|list\|show` | Creates and inspects projects. |
+| `manga analyze` | Detects panels and bubbles, reads the text, attributes speakers (`--detector magi\|vision\|api`). |
+| `manga read` | Opens the web reader to check and correct the analysis. |
+| `manga voice` | Generates one voice per character from `cast.toml`. |
+| `manga timeline` | Builds `timeline.json`, the editable cut. |
+| `manga animate` | Marks shots for AI animation, with a motion prompt. |
+| `manga render` | Renders the reading video (`--style scroll\|panels`). |
+| `manga anime` | Renders an anime episode: clean 16:9 key images, clips and a full-frame edit. |
+| `manga run` | Runs analyze, voice, timeline and render in sequence. |
+| `manga characters` | Crops the characters found by Magi, to name and reuse them. |
+| `manga story new\|build` | Writes and draws a spin-off with a project's characters. |
+| `manga models search\|install` | Searches models and prices, or installs the local ones. |
+| `manga uninstall` | Removes the app folder and its links. |
 
 ## Installation
 
@@ -24,6 +65,15 @@ ln -s "$PWD/target/release/manga" ~/.cargo/bin/manga      # a link, not a copy
 ln -s "$PWD/skills/manga" ~/.claude/skills/manga
 manga doctor
 ```
+
+To install only the Claude Code skill, with the [skills CLI](https://github.com/vercel-labs/skills):
+
+```sh
+npx skills add maxgfr/manga-anim --skill manga -a claude-code
+```
+
+The skill does not contain the `manga` binary: if it is missing, the skill offers to install it.
+The `ln -s` above is for working on the skill from a clone.
 
 The analysis models (Magi v2, ~4 GB) and voice models (Kokoro, ~350 MB) are downloaded on first use.
 
@@ -75,6 +125,35 @@ manga render vs-s3           # → data/projects/vs-s3/out/vs-s3.mp4
 To animate a few panels: `manga animate vs-s3 12 27 --prompt "snow falling, cape flapping"`
 then `manga render vs-s3`.
 
+### Anime
+
+Once a project has its analysis, voices and timeline:
+
+```sh
+manga models search image                       # a model that accepts reference images
+manga models search video                       # a model that starts from a first frame
+manga anime vs-s3 --backend openrouter --image-model <id> --video-model <id> --dry-run
+manga anime vs-s3 --backend openrouter --image-model <id> --keyframes-only     # check keyframes/ first
+manga anime vs-s3 --backend openrouter --image-model <id> --video-model <id> --max-seconds 60
+# → data/projects/vs-s3/out/vs-s3-anime.mp4
+```
+
+| Option | Effect |
+|---|---|
+| `--style color\|bw` | Full-color anime stills, or clean black and white. |
+| `--look "..."` | Appearance notes added to every key image, to keep the colors consistent. |
+| `--direct-provider`, `--direct-model` | A vision model writes the missing motion prompts (`openrouter`, `openai`, `google`). Manual prompts are kept. |
+| `--shots 3,4` | Only these shots. |
+| `--key-shots-only` | Only the shots marked with `manga animate` move; the others keep their key image and a camera move. |
+| `--keyframes-only` | Stop after the images, to check them before paying for clips. |
+| `--max-seconds` | Refuse to start above this many seconds of video. |
+| `--dry-run` | Show what would be generated, without calling a model. |
+
+Key images and clips are cached, so a rerun only pays for what is missing. Key images reuse the
+drawing backends and clips the animation backends, so `--backend local` and `connect` work too.
+The colors are invented by the model and can drift between shots, and there is no exact lip sync,
+music or sound effects yet.
+
 ### Spin-off
 
 ```sh
@@ -122,7 +201,7 @@ cannot be read the run stops with a one-line error and the finished pages are ke
 
 ## Generation backends
 
-Voices, animation and drawing run on local models by default. With an `OPENROUTER_API_KEY`, each
+Voices, animation, drawing and anime run on local models by default. With an `OPENROUTER_API_KEY`, each
 of them can run on [OpenRouter](https://openrouter.ai) instead, with no large model to download.
 
 > **OpenRouter is billed per use and sends your data to third parties**: panels for animation,
@@ -135,6 +214,7 @@ of them can run on [OpenRouter](https://openrouter.ai) instead, with no large mo
 | Animation | `manga render <name> --backend openrouter --model <id>` | [video models](https://openrouter.ai/models?output_modalities=video), which must accept a first frame |
 | Voices | `manga voice <name> --backend openrouter --model <id>` | [speech models](https://openrouter.ai/models?output_modalities=speech), which must output MP3 |
 | Drawing | `manga story build <name> --backend openrouter --model <id>` | [image models](https://openrouter.ai/models?output_modalities=image), with `input_references` if panels use character refs |
+| Anime | `manga anime <name> --backend openrouter --image-model <id> --video-model <id>` | an image model with `input_references` and a video model that accepts a first frame |
 
 ```sh
 export OPENROUTER_API_KEY=...         # read from the environment only, never written to job files
@@ -218,8 +298,8 @@ are for personal use.
 
 | Part | Role |
 |---|---|
-| `src/` (Rust) | CLI, library, sources, project, timeline, ffmpeg rendering, PNG captions, axum reader |
-| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `review` (API review), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX, OpenRouter or llm-connect), `animate` (mlx-video Wan2.2, OpenRouter or llm-connect), `draw_openrouter`, `draw_connect`, `openrouter` (HTTP client), `connect` (drives the Node worker), `models` |
+| `src/` (Rust) | CLI, library, sources, project, timeline, anime, ffmpeg rendering, PNG captions, axum reader |
+| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `review` (API review), `direct` (anime motion prompts), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX, OpenRouter or llm-connect), `animate` (mlx-video Wan2.2, OpenRouter or llm-connect), `draw_openrouter`, `draw_connect`, `openrouter` (HTTP client), `connect` (drives the Node worker), `models` |
 | `workers/connect` (Node, optional) | `run.mjs`: one image, speech line or clip through llm-connect |
 | `workers/draw/mangadraw` (Python, uv, separate venv) | `draw` (FLUX.2 [klein] via mflux), `models` |
 

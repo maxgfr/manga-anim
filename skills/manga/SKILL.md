@@ -1,6 +1,6 @@
 ---
 name: manga
-description: Run the whole `manga` CLI (manga-anim) pipeline from Claude Code, on the Mac or through API keys (OpenRouter, fal, OpenAI, Google, xAI, Replicate, ElevenLabs, Anthropic) — reading video (speech bubble OCR, voices, captions, camera moves), AI animation of panels, and a new manga (spin-off) drawn with the characters of an existing one. Use when the user wants to read, edit, dub or animate a manga, comic or webtoon, "from this page to that page", import a CBZ/PDF/EPUB, search MangaDex, fix a project's OCR, or invent a sequel or a new story with existing characters.
+description: Run the whole `manga` CLI (manga-anim) pipeline from Claude Code, on the Mac or through API keys (OpenRouter, fal, OpenAI, Google, xAI, Replicate, ElevenLabs, Anthropic) — reading video (speech bubble OCR, voices, captions, camera moves), AI animation of panels, a full anime episode generated from the manga, and a new manga (spin-off) drawn with the characters of an existing one. Use when the user wants to read, edit, dub or animate a manga, comic or webtoon, turn one into an anime, "from this page to that page", import a CBZ/PDF/EPUB, search MangaDex, fix a project's OCR, or invent a sequel or a new story with existing characters.
 ---
 
 # manga-anim
@@ -18,6 +18,8 @@ If the CLI is installed (Homebrew), these folders are in `~/Library/Application 
 Take a request from pages to finished video yourself; the user should not have to type a `manga` command.
 
 1. **Check the setup.** Run `manga doctor`. Tell the user what is missing and install only what the request needs.
+   If `manga` is not found (this skill can be installed without the CLI, with `npx skills`), tell the user and, once they agree, install it:
+   `brew install ffmpeg uv poppler`, `git clone https://github.com/maxgfr/manga-anim`, then in that folder `cargo build --release`, `(cd workers && uv sync --extra ja)` and put `target/release/manga` on the `PATH` with a link, not a copy.
 2. **Settle the brief once.** Source and page range, language, reading direction, output style, and whether to spend money. A sample page settles the direction: follow the sentence order across the panels, since English editions of manga often keep right-to-left.
 3. **Pick where each step runs**, from what the user asked for and which keys exist. Check a key by testing whether its variable is set, and never print it.
 
@@ -45,12 +47,12 @@ Billed steps need the user's go-ahead and a stated limit, unless they have alrea
 4. Run **one** item first and look at it. Only then run the rest, cheapest step first, and recheck the balance after each step. Finished items stay cached, so a rerun does not pay again.
 5. Stop at the limit and say so.
 
-Reference points from a real run on OpenRouter: four panels with `black-forest-labs/flux-3-image` cost about $0.10, a 3-second 720p clip with `alibaba/wan-3.0` about $0.45, and 28 dialogue lines with `elevenlabs/eleven-v4-turbo` about $0.05. Prices change, so always check.
+Reference points from a real run on OpenRouter: a panel or key image with `black-forest-labs/flux-3-image` costs $0.025 to $0.04, a second of 720p `alibaba/wan-3.0` about $0.12 to $0.17 (more than its listed $0.10), and 28 dialogue lines with `elevenlabs/eleven-v4-turbo` about $0.05. Prices change, so always check.
 
 ### Animation settings that matter
 
 - Pick panels with little or no lettering, since models can warp text.
-- `--frames` sets the requested length (49 is about 2 s, usually billed as the next supported length).
+- `--frames` sets the requested length (49 is 2 s, billed as the shortest supported length that covers it).
 - `--max-area` sets the billed resolution through the clip's short side: `720000` stays at 720p for any panel shape, while a larger area can jump to 1080p and double the price.
 - Silent shots last 1.6 s. Set `extra` in `timeline.json` so the shot lasts as long as the clip, then rerun `manga timeline`.
 
@@ -172,6 +174,28 @@ Shortcut: `manga run <name>` chains analysis, voices, timeline and render.
 - Expect several minutes per 2 s clip on a 16 GB Mac. Choose few shots: strong moments,
   wide panels with characters. State the estimated time before starting.
 - `manga render <name> --no-animate` renders quickly, ignoring animation.
+
+## Anime: the last step
+
+`manga anime` turns a project that already has its analysis, voices and timeline into an episode: each panel is repainted as a clean 16:9 key image without bubbles or lettering, animated for as long as its shot lasts, and rendered full-frame with the voices and subtitles.
+
+```sh
+manga anime <name> --backend openrouter --image-model <id> --video-model <id> \
+  [--style color|bw] [--look "Kit: red hair, green coat"] [--shots 3,4] [--key-shots-only] \
+  [--keyframes-only] [--max-seconds 30] [--dry-run]
+```
+
+Run it in this order, and follow Budget above. Stop and ask when a step looks wrong.
+
+1. **Models.** `manga models search image` for a model that accepts reference images, `manga models search video` for one that starts from a first frame.
+2. **Direction.** Read every panel yourself. Write a `--look` line with the colors of each character, and give each shot a short motion prompt with `manga animate <name> <shot> --prompt "..."`. That also marks the shot; add `--key-shots-only` to the run if only those should move. With API keys only, `--direct-provider` and `--direct-model` write the missing prompts instead; manual prompts are kept.
+3. **Estimate.** `--dry-run` gives the images and the seconds of video. Multiply by the current prices, state the total and always pass `--max-seconds`.
+4. **One key image.** Run with `--keyframes-only --shots <one shot>` and look at `keyframes/`. Check that no bubble or letter is left and that the characters are still themselves. Then run the rest with `--keyframes-only`.
+5. **One clip.** Run `--shots <one shot>`, look at sampled frames, then run everything. Finished images and clips stay cached.
+
+The colors are invented by the model and can drift between shots: the `--look` line limits this but does not remove it. A video model also invents what the first frame hides: a character raising a bowed head can gain glasses, so write prompts that keep a hidden face hidden. There is no exact lip sync, music or sound effects yet. A shot longer than the model's longest clip holds its last image.
+
+Recoloring and animating someone's work goes further than dubbing it: check the rights first (see Rights above).
 
 ## Spin-off: a new manga with a project's characters
 

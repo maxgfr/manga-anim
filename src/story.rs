@@ -500,15 +500,15 @@ fn panel_params(prompt: &str, width: u32, height: u32, seed: u64, steps: u32, ba
 }
 
 #[derive(Serialize)]
-struct DrawItem {
-    id: String,
-    prompt: String,
-    refs: Vec<String>,
-    width: u32,
-    height: u32,
-    seed: u64,
-    steps: u32,
-    out: String,
+pub(crate) struct DrawItem {
+    pub id: String,
+    pub prompt: String,
+    pub refs: Vec<String>,
+    pub width: u32,
+    pub height: u32,
+    pub seed: u64,
+    pub steps: u32,
+    pub out: String,
 }
 
 #[derive(Serialize)]
@@ -530,6 +530,38 @@ struct ConnectDrawJob<'a> {
     #[serde(flatten)]
     connect: connect::Fields<'a>,
     items: Vec<DrawItem>,
+}
+
+/// Runs the drawing worker of `backend` on `items`.
+pub(crate) fn draw_items(root: &Path, backend: &Backend, items: Vec<DrawItem>) -> Result<()> {
+    let job_path = root.join("work/draw_job.json");
+    match backend {
+        Backend::Local => {
+            let model = model_dir();
+            if !model.exists() {
+                bail!(
+                    "drawing model missing ({}). Install it with `manga models install flux2` (~15 GB downloaded, ~5 GB kept), \
+                     or compose without drawing using --no-draw",
+                    model.display()
+                );
+            }
+            println!("{} panels to draw with FLUX.2 [klein]", items.len());
+            let job = DrawJob { model_dir: model.to_string_lossy().into(), items };
+            worker::run_in(worker::Env::Draw, "draw", &job, &job_path)
+        }
+        Backend::OpenRouter { model } => {
+            backend.check_key()?;
+            println!("{} panels to draw with {model} on OpenRouter (billed per use; prompts and character references are sent to third parties)", items.len());
+            // The main venv is enough: this path does not use mflux.
+            worker::run("draw_openrouter", &OpenRouterDrawJob { model, items }, &job_path)
+        }
+        Backend::Connect { provider, model } => {
+            backend.check_key()?;
+            let script = connect::ensure_worker()?;
+            println!("{} panels to draw with {model} on {provider} (billed per use; prompts and character references are sent to {provider})", items.len());
+            worker::run("draw_connect", &ConnectDrawJob { connect: connect::Fields::new(provider, model, &script), items }, &job_path)
+        }
+    }
 }
 
 /// Draws the missing panels (content-addressed cache in `panels/`), composes the pages,
@@ -573,34 +605,7 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
         plans.push((rects, files));
     }
     if !items.is_empty() {
-        let job_path = root.join("work/draw_job.json");
-        match &opts.backend {
-            Backend::Local => {
-                let model = model_dir();
-                if !model.exists() {
-                    bail!(
-                        "drawing model missing ({}). Install it with `manga models install flux2` (~15 GB downloaded, ~5 GB kept), \
-                         or compose without drawing using --no-draw",
-                        model.display()
-                    );
-                }
-                println!("{} panels to draw with FLUX.2 [klein]", items.len());
-                let job = DrawJob { model_dir: model.to_string_lossy().into(), items };
-                worker::run_in(worker::Env::Draw, "draw", &job, &job_path)?;
-            }
-            Backend::OpenRouter { model } => {
-                opts.backend.check_key()?;
-                println!("{} panels to draw with {model} on OpenRouter (billed per use; prompts and character references are sent to third parties)", items.len());
-                // The main venv is enough: this path does not use mflux.
-                worker::run("draw_openrouter", &OpenRouterDrawJob { model, items }, &job_path)?;
-            }
-            Backend::Connect { provider, model } => {
-                opts.backend.check_key()?;
-                let script = connect::ensure_worker()?;
-                println!("{} panels to draw with {model} on {provider} (billed per use; prompts and character references are sent to {provider})", items.len());
-                worker::run("draw_connect", &ConnectDrawJob { connect: connect::Fields::new(provider, model, &script), items }, &job_path)?;
-            }
-        }
+        draw_items(&root, &opts.backend, items)?;
     }
 
     // Pages and their analysis derive entirely from the story: rewrite them.

@@ -33,6 +33,9 @@ pub enum Style {
     Scroll,
     /// One panel at a time on a blurred background, with zoom or pan.
     Panels,
+    /// `manga anime`: key images and clips fill the frame. Needs the key images, so not a `--style`.
+    #[value(skip)]
+    Anime,
 }
 
 pub struct RenderOptions {
@@ -43,6 +46,8 @@ pub struct RenderOptions {
     pub show_speaker: bool,
     pub captions: bool,
     pub jobs: usize,
+    /// `manga anime`: shot → key image.
+    pub keyframes: HashMap<String, PathBuf>,
 }
 
 /// Crops the panel with a small margin.
@@ -71,6 +76,10 @@ pub enum Camera {
     Clip { fw: u32, fh: u32 },
     /// Page strip already at frame width, full-frame window whose top goes from y0 to y1.
     Scroll { y0: f64, y1: f64 },
+    /// Anime: the clip fills the frame and holds its last image if the shot runs longer.
+    Cover,
+    /// Anime: a key image without a clip fills the frame, zooming from `from` to `to`.
+    CoverStill { from: f64, to: f64 },
 }
 
 pub fn camera(pw: u32, ph: u32, frame: (u32, u32), motion: Motion, clip: bool) -> Camera {
@@ -142,8 +151,21 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
         Camera::Scroll { y0, y1 } => {
             write!(g, "[0:v]fps={fps},crop={w}:{h}:x=0:y='{y0:.2}+({:.2})*min(t/{duration:.3}\\,1)',setsar=1[v0];", y1 - y0).unwrap();
         }
+        Camera::Cover => {
+            write!(g, "[0:v]scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},fps={fps},tpad=stop_mode=clone:stop=-1,setsar=1[v0];").unwrap();
+        }
+        Camera::CoverStill { from, to } => {
+            let (sw, sh) = (w * 2, h * 2);
+            let z = format!("{from}+({to}-{from})*on/{frames}");
+            write!(
+                g,
+                "[0:v]scale={sw}:{sh}:force_original_aspect_ratio=increase:flags=lanczos,crop={sw}:{sh},\
+                 zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={fps},setsar=1[v0];"
+            )
+            .unwrap();
+        }
     }
-    if !matches!(cam, Camera::Scroll { .. }) {
+    if !matches!(cam, Camera::Scroll { .. } | Camera::Cover | Camera::CoverStill { .. }) {
         write!(
             g,
             "[fg]split[fga][fgb];\
@@ -252,6 +274,9 @@ fn cache_key(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>,
     if let Some(c) = clip {
         h.update(c.to_string_lossy().as_bytes());
     }
+    if opts.style == Style::Anime {
+        h.update(format!("anime {:?}", opts.keyframes.get(&shot.id)));
+    }
     Ok(hex::encode(h.finalize())[..12].to_string())
 }
 
@@ -259,19 +284,30 @@ fn cache_key(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>,
 fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>, scroll: Option<(f64, f64)>, style: &CaptionStyle, opts: &RenderOptions, out: &Path) -> Result<()> {
     let work = out.with_extension("parts");
     fs::create_dir_all(&work)?;
-    let page = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
     let frame = (tl.width, tl.height);
     let panel_path = work.join("panel.png");
-    let cam = match scroll.filter(|_| clip.is_none()) {
-        Some(path) => {
-            let (band, cam) = scroll_band(&page, frame, path);
-            band.save(&panel_path)?;
-            cam
+    let cam = if opts.style == Style::Anime {
+        let key = opts.keyframes.get(&shot.id).with_context(|| format!("no key image for shot {}", shot.id))?;
+        image::open(key).with_context(|| format!("unreadable key image: {}", key.display()))?.save(&panel_path)?;
+        match (clip, shot.motion) {
+            (Some(_), _) => Camera::Cover,
+            (None, Motion::Static) => Camera::CoverStill { from: 1.0, to: 1.0 },
+            (None, Motion::ZoomOut) => Camera::CoverStill { from: 1.08, to: 1.0 },
+            (None, _) => Camera::CoverStill { from: 1.0, to: 1.08 },
         }
-        None => {
-            let panel = crop_panel(&page, &shot.bbox);
-            panel.save(&panel_path)?;
-            camera(panel.width(), panel.height(), frame, shot.motion, clip.is_some())
+    } else {
+        let page = image::open(project.path("pages").join(&shot.page)).with_context(|| format!("unreadable page: {}", shot.page))?;
+        match scroll.filter(|_| clip.is_none()) {
+            Some(path) => {
+                let (band, cam) = scroll_band(&page, frame, path);
+                band.save(&panel_path)?;
+                cam
+            }
+            None => {
+                let panel = crop_panel(&page, &shot.bbox);
+                panel.save(&panel_path)?;
+                camera(panel.width(), panel.height(), frame, shot.motion, clip.is_some())
+            }
         }
     };
     let mut caption_paths = Vec::new();
@@ -293,6 +329,7 @@ fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path
     let dur = format!("{:.3}", shot.duration);
     match (&cam, clip) {
         (Camera::Clip { .. }, Some(c)) => cmd.args(["-stream_loop", "-1", "-t", &dur, "-i"]).arg(c),
+        (Camera::Cover, Some(c)) => cmd.arg("-i").arg(c),
         (Camera::Pan { .. } | Camera::Scroll { .. }, _) => cmd.args(["-loop", "1", "-framerate", &tl.fps.to_string(), "-t", &dur, "-i"]).arg(&panel_path),
         _ => cmd.arg("-i").arg(&panel_path),
     };
@@ -343,7 +380,7 @@ pub fn run(project: &Project, tl: &Timeline, clips: &HashMap<String, PathBuf>, o
             let active: Vec<&Shot> = tl.shots.iter().filter(|s| !s.skip).collect();
             scroll_path(&active, |page| image::image_dimensions(project.path("pages").join(page)).ok(), (tl.width, tl.height))
         }
-        Style::Panels => HashMap::new(),
+        Style::Panels | Style::Anime => HashMap::new(),
     };
 
     let mut todo = Vec::new();
@@ -457,6 +494,21 @@ mod tests {
             extra: 0.0,
             lines: Vec::new(),
         }
+    }
+
+    #[test]
+    fn anime_clip_fills_the_frame_and_holds_its_last_image() {
+        let g = filter_graph(&Camera::Cover, 6.0, 30, (1920, 1080), &[], &[]);
+        assert!(g.starts_with("[0:v]scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,fps=30,tpad=stop_mode=clone:stop=-1,setsar=1[v0];"));
+        assert!(!g.contains("gblur"), "no blurred background");
+    }
+
+    #[test]
+    fn anime_still_fills_the_frame() {
+        let g = filter_graph(&Camera::CoverStill { from: 1.0, to: 1.08 }, 3.0, 30, (1920, 1080), &[], &[]);
+        assert!(g.contains("crop=3840:2160,zoompan=z='1+(1.08-1)*on/90'"));
+        assert!(g.contains(":s=1920x1080:fps=30,setsar=1[v0];"));
+        assert!(!g.contains("gblur"), "no blurred background");
     }
 
     #[test]

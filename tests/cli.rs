@@ -230,6 +230,72 @@ fn animate_without_shots_changes_nothing() {
     assert_eq!(fs::read_to_string(env.project("p/timeline.json")).unwrap(), timeline);
 }
 
+const ANIME_TIMELINE: &str = r#"{"width":1920,"height":1080,"fps":30,"shots":[
+    {"id":"p0001_page","page":"0001.png","bbox":[0,0,16,24],"duration":1.5,"motion":"static","mode":"motion","lines":[]},
+    {"id":"p0001_k0","page":"0001.png","bbox":[0,0,16,12],"duration":2.2,"motion":"zoom_in","mode":"motion","lines":[]},
+    {"id":"p0001_k1","page":"0001.png","bbox":[0,12,16,24],"duration":3.0,"motion":"zoom_out","mode":"animate","lines":[]}]}"#;
+
+fn anime_project() -> Env {
+    let env = Env::new();
+    env.with_project("p");
+    fs::write(env.project("p/timeline.json"), ANIME_TIMELINE).unwrap();
+    env
+}
+
+const ANIME_API: [&str; 7] = ["--backend", "openrouter", "--image-model", "i/m", "--video-model", "v/m", "--dry-run"];
+
+fn anime_args<'a>(extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec!["anime", "p"];
+    args.extend(ANIME_API);
+    args.extend(extra);
+    args
+}
+
+#[test]
+fn anime_dry_run_counts_without_a_key_or_a_model() {
+    let env = anime_project();
+    let out = env.ok(&anime_args(&[]));
+    assert!(out.contains("2 shots: 2 key images to draw, 2 clips to generate (about 6 s of video)"), "{out}");
+    assert_eq!(fs::read_to_string(env.project("p/timeline.json")).unwrap(), ANIME_TIMELINE, "marks stay out of the timeline");
+}
+
+#[test]
+fn anime_key_shots_only_pays_for_the_marked_shots() {
+    let env = anime_project();
+    let out = env.ok(&anime_args(&["--key-shots-only"]));
+    assert!(out.contains("2 key images to draw, 1 clips to generate (about 3 s of video)"), "{out}");
+}
+
+#[test]
+fn anime_refuses_to_start_over_the_limit() {
+    let env = anime_project();
+    let mut args = anime_args(&["--max-seconds", "5"]);
+    args.retain(|a| *a != "--dry-run");
+    let err = env.fails(&args);
+    assert!(err.contains("over --max-seconds 5"), "{err}");
+}
+
+#[test]
+fn anime_needs_the_key_before_any_work() {
+    let env = anime_project();
+    let mut args = anime_args(&[]);
+    args.retain(|a| *a != "--dry-run");
+    let out = {
+        let path = format!("{}:{}", env.bin.display(), std::env::var("PATH").unwrap());
+        Command::new(env!("CARGO_BIN_EXE_manga")).args(&args).current_dir(env.dir.path()).env("MANGA_HOME", &env.home).env("PATH", path).env_remove("OPENROUTER_API_KEY").output().unwrap()
+    };
+    assert_eq!(out.status.code(), Some(1));
+    assert!(text(&out).contains("OPENROUTER_API_KEY is not set"), "{}", text(&out));
+}
+
+#[test]
+fn anime_style_is_not_a_render_option() {
+    let env = anime_project();
+    let err = env.run(&["render", "p", "--style", "anime"]);
+    assert!(!err.status.success());
+    assert!(text(&err).contains("invalid value"), "{}", text(&err));
+}
+
 #[test]
 fn disabled_voices_leave_the_timeline_silent() {
     let env = Env::new();

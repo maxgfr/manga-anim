@@ -22,6 +22,11 @@ fn is_kokoro_voice(voice: &str) -> bool {
     KOKORO_LANGS.iter().filter_map(|l| voices_for(l)).flatten().any(|v| v.split('@').next() == Some(voice))
 }
 
+/// Kokoro reads the language from the first letter of the voice and aborts on any other.
+fn has_kokoro_prefix(voice: &str) -> bool {
+    voice.starts_with(['a', 'b', 'e', 'f', 'h', 'i', 'j', 'p', 'z'])
+}
+
 /// Cache key of a line. Local keys are unchanged, so existing audio stays valid.
 fn line_hash(text: &str, voice: &str, speed: f64, backend: &Backend) -> String {
     hex::encode(Sha256::digest(format!("{text}\n{voice}\n{speed}\n{TTS_MODEL}{}", backend.cache_suffix())))
@@ -249,7 +254,12 @@ pub fn run(project: &Project, force: bool, backend: &Backend) -> Result<()> {
             None => Ok(()),
         };
         let (name, provider, script, model) = match backend {
-            Backend::Local => (None, None, None, TTS_MODEL.to_string()),
+            Backend::Local => {
+                if let Some(item) = items.iter().find(|i| !has_kokoro_prefix(&i.voice)) {
+                    bail!("cast.toml uses \"{}\", which is not a Kokoro voice: see https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md", item.voice);
+                }
+                (None, None, None, TTS_MODEL.to_string())
+            }
             Backend::OpenRouter { model } => {
                 refuse_kokoro(model)?;
                 backend.check_key()?;
@@ -328,6 +338,13 @@ mod tests {
         assert!(is_kokoro_voice("ff_siwis"));
         assert!(!is_kokoro_voice("alloy"));
         assert!(!is_kokoro_voice("en-US-Harper:MAI-Voice-2.1"));
+    }
+
+    #[test]
+    fn kokoro_prefix_covers_every_listed_voice() {
+        assert!(KOKORO_LANGS.iter().filter_map(|l| voices_for(l)).flatten().all(|v| has_kokoro_prefix(v)));
+        assert!(!has_kokoro_prefix("does_not_exist"));
+        assert!(!has_kokoro_prefix("xf_nope"));
     }
 
     #[test]

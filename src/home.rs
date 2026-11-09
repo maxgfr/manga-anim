@@ -125,10 +125,13 @@ pub fn natural_key(s: &str) -> Vec<(u8, u64, String)> {
 }
 
 pub fn is_image(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif")
-    )
+    // `._p1.png` is a macOS resource fork, not a page.
+    !path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        && matches!(
+            path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
+            // Formats the renderer can decode: the `image` crate reads no AVIF in this build.
+            Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
+        )
 }
 
 #[cfg(test)]
@@ -139,6 +142,21 @@ mod tests {
     fn slug() {
         assert_eq!(slugify("Vinland Saga — Volume 12!"), "vinland-saga-volume-12");
         assert_eq!(slugify("進撃の巨人"), "進撃の巨人");
+    }
+
+    #[test]
+    fn hidden_files_are_not_images() {
+        assert!(is_image(Path::new("a/1.PNG")));
+        assert!(!is_image(Path::new("a/._1.png")));
+        assert!(!is_image(Path::new("a/1.txt")));
+    }
+
+    #[test]
+    fn images_are_formats_the_renderer_decodes() {
+        for ext in ["png", "jpg", "jpeg", "webp", "gif", "bmp"] {
+            assert!(is_image(Path::new(&format!("a.{ext}"))), "{ext}");
+        }
+        assert!(!is_image(Path::new("a.avif")), "imported, analyzed, then refused at render");
     }
 
     #[test]

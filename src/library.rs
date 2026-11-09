@@ -8,7 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::home::{is_image, library_dir, natural_key, slugify};
 
@@ -29,7 +29,11 @@ pub fn chapter_dir_name(chapter: f64) -> String {
 pub fn guess_chapter(name: &str) -> Option<f64> {
     let lower = name.to_lowercase();
     for marker in ["chapitre", "chapter", "chap", "ch.", "ch", "c", "tome", "vol.", "vol", "t", "v"] {
-        if let Some(pos) = lower.rfind(marker) {
+        for (pos, _) in lower.rmatch_indices(marker) {
+            // A marker starts a word: the `c` of `scans` or `arc` is not a chapter.
+            if lower[..pos].chars().next_back().is_some_and(char::is_alphabetic) {
+                continue;
+            }
             let rest = lower[pos + marker.len()..].trim_start_matches([' ', '.', '_', '-', '#']);
             if let Some(n) = leading_number(rest) {
                 return Some(n);
@@ -89,24 +93,51 @@ pub fn list_titles() -> Result<Vec<(String, usize)>> {
     Ok(out)
 }
 
+/// Title of an import when `--title` is absent: the file name without its extension, or the
+/// whole folder name (a dot in `Dr. Stone` does not start an extension).
+pub fn default_title(path: &Path) -> String {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let name = if path.is_dir() { path.file_name() } else { path.file_stem() };
+    name.map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into())
+}
+
 /// Imports a file or folder. Returns the chapters created.
 ///
 /// A folder of images is one chapter; a folder containing archives or
 /// subfolders is a series, with each entry becoming a chapter.
 pub fn import(src: &Path, title: &str, chapter: Option<f64>) -> Result<Vec<(f64, usize)>> {
+    ensure!(!slugify(title).is_empty(), "\"{title}\" has no letter or digit to name a library folder: pass another --title");
+    let canonical = src.canonicalize().with_context(|| format!("not found: {}", src.display()))?;
+    // `.` and `..` have no name of their own.
+    let src = if src.file_name().is_some() { src } else { canonical.as_path() };
+    if chapter.is_some() && src.is_dir() {
+        let entries: Vec<PathBuf> = fs::read_dir(src)?.flatten().map(|e| e.path()).collect();
+        if !entries.iter().any(|p| is_image(p)) && entries.iter().any(|p| !is_junk(p) && (p.is_dir() || is_archive(p))) {
+            bail!("--chapter applies to a single chapter: {} is a series, its chapter numbers come from the entry names", src.display());
+        }
+    }
+    import_entry(src, title, chapter)
+}
+
+fn import_entry(src: &Path, title: &str, chapter: Option<f64>) -> Result<Vec<(f64, usize)>> {
     if src.is_dir() {
         let mut entries: Vec<PathBuf> = fs::read_dir(src)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort_by_key(|p| natural_key(&p.file_name().unwrap().to_string_lossy()));
         if entries.iter().any(|p| is_image(p)) {
-            let n = chapter.or_else(|| guess_chapter(&src.file_name().unwrap().to_string_lossy())).unwrap_or(1.0);
+            let n = chapter.or_else(|| src.file_name().and_then(|f| guess_chapter(&f.to_string_lossy()))).unwrap_or(1.0);
             let images: Vec<PathBuf> = entries.into_iter().filter(|p| is_image(p)).collect();
             return Ok(vec![(n, store_files(title, n, &images)?)]);
         }
         let mut out = Vec::new();
-        for (i, entry) in entries.iter().filter(|p| p.is_dir() || is_archive(p)).enumerate() {
-            let name = entry.file_stem().unwrap().to_string_lossy();
+        let mut seen = Vec::new();
+        for (i, entry) in entries.iter().filter(|p| !is_junk(p) && (p.is_dir() || is_archive(p))).enumerate() {
+            // A folder has no extension to drop: `Chapter 1.5` is chapter 1.5, not 1.
+            let name = if entry.is_dir() { entry.file_name() } else { entry.file_stem() }.unwrap().to_string_lossy();
             let n = guess_chapter(&name).unwrap_or((i + 1) as f64);
-            out.extend(import(entry, title, Some(n))?);
+            // The second one would silently replace the first.
+            ensure!(!seen.contains(&n), "several entries are chapter {}, the last being \"{name}\": rename them or import them one by one with --chapter", chapter_dir_name(n));
+            seen.push(n);
+            out.extend(import_entry(entry, title, Some(n))?);
         }
         if out.is_empty() {
             bail!("no images or archives in {}", src.display());
@@ -124,6 +155,11 @@ pub fn import(src: &Path, title: &str, chapter: Option<f64>) -> Result<Vec<(f64,
         _ => bail!("unsupported format: {} (expected: cbz, zip, epub, pdf, cbr, or a folder of images)", src.display()),
     };
     Ok(vec![(n, count)])
+}
+
+/// Hidden entries and macOS resource forks are never chapters.
+fn is_junk(p: &Path) -> bool {
+    p.file_name().map(|n| n.to_string_lossy()).is_some_and(|n| n.starts_with('.') || n == "__MACOSX")
 }
 
 fn is_archive(p: &Path) -> bool {
@@ -233,7 +269,17 @@ fn import_zip(src: &Path, title: &str, n: f64) -> Result<usize> {
 }
 
 fn import_pdf(src: &Path, title: &str, n: f64) -> Result<usize> {
-    let dir = fresh_chapter_dir(title, n)?;
+    // Rendered aside: a PDF that fails must not cost the chapter already in the library.
+    let tmp = tempdir_in_library()?;
+    let count = render_pdf(src, &tmp).and_then(|count| {
+        fs::rename(&tmp, fresh_chapter_dir(title, n)?)?;
+        Ok(count)
+    });
+    fs::remove_dir_all(&tmp).ok();
+    count
+}
+
+fn render_pdf(src: &Path, dir: &Path) -> Result<usize> {
     let status = Command::new("pdftoppm")
         .args(["-r", "150", "-png"])
         .arg(src)
@@ -243,7 +289,7 @@ fn import_pdf(src: &Path, title: &str, n: f64) -> Result<usize> {
     if !status.success() {
         bail!("pdftoppm failed on {}", src.display());
     }
-    renumber(&dir)
+    renumber(dir)
 }
 
 fn import_with_unarchiver(src: &Path, title: &str, n: f64) -> Result<usize> {
@@ -261,7 +307,7 @@ fn import_with_unarchiver(src: &Path, title: &str, n: f64) -> Result<usize> {
         .filter(|p| is_image(p))
         .collect();
     images.sort_by_key(|p| natural_key(&p.to_string_lossy()));
-    let count = store_files(title, n, &images);
+    let count = if images.is_empty() { Err(anyhow::anyhow!("no images in {}", src.display())) } else { store_files(title, n, &images) };
     fs::remove_dir_all(&tmp).ok();
     count
 }
@@ -301,6 +347,25 @@ mod tests {
         assert_eq!(guess_chapter("Vinland Saga Tome 12"), Some(12.0));
         assert_eq!(guess_chapter("Chapitre 7 - Le retour"), Some(7.0));
         assert_eq!(guess_chapter("no number"), None);
+    }
+
+    #[test]
+    fn chapter_markers_start_a_word() {
+        assert_eq!(guess_chapter("Naruto_c700_v2_Scans"), Some(700.0));
+        assert_eq!(guess_chapter("Arc 5 - 12"), Some(12.0));
+        assert_eq!(guess_chapter("Chapter 5 - The Chapter of Doom"), Some(5.0));
+    }
+
+    #[test]
+    fn default_title_keeps_dots_in_folder_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Dr. Stone");
+        fs::create_dir(&folder).unwrap();
+        assert_eq!(default_title(&folder), "Dr. Stone");
+        let file = dir.path().join("One Piece.v2.cbz");
+        fs::write(&file, b"").unwrap();
+        assert_eq!(default_title(&file), "One Piece.v2");
+        assert_eq!(default_title(&folder.join("..")), dir.path().canonicalize().unwrap().file_name().unwrap().to_string_lossy());
     }
 
     #[test]

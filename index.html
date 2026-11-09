@@ -91,9 +91,6 @@ td code, p code, li code { color: var(--lantern); font-size: .92em; }
 .catalog { overflow-x: auto; }
 .catalog table { min-width: 720px; }
 .catalog td:first-child { white-space: nowrap; }
-.ok { color: var(--doctor); font-weight: 700; }
-.mock { color: var(--robot); font-weight: 700; }
-.no { color: var(--mina); font-weight: 700; }
 
 .credit { margin: 10px 0 0; font-size: .95rem; }
 .shot { display: block; width: 100%; height: auto; border: 4px solid var(--paper); }
@@ -353,35 +350,35 @@ episode with voices. Keep it under $4.</pre>
       <li>The Claude Code skill installs with <code>npx skills</code>.</li>
       <li>Clips are no longer billed one second too long.</li>
     </ul>
-    <p class="lede">The full list, and how far each part has actually been tested. <span class="ok">Run</span> means real pages or real API calls, <span class="mock">Tests</span> means automated tests against mocks, <span class="no">Not run</span> means written but never executed for this demo.</p>
-    <div class="catalog" tabindex="0" role="region" aria-label="Every command and how it was tested">
+    <p class="lede">The full list:</p>
+    <div class="catalog" tabindex="0" role="region" aria-label="Every command">
     <table>
-      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Where it runs</th><th scope="col">State</th></tr></thead>
+      <thead><tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Where it runs</th></tr></thead>
       <tbody>
-        <tr><td><code>doctor</code></td><td>Checks the tools, models and API keys.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>source search</code>, <code>chapters</code>, <code>fetch</code></td><td>Finds and downloads chapters from MangaDex.</td><td>MangaDex</td><td><span class="no">Not run</span></td></tr>
-        <tr><td><code>import</code></td><td>CBZ, EPUB, PDF, CBR, or a folder of images or chapters.</td><td>Local</td><td><span class="ok">Run</span> with PDF, CBZ and folders. <span class="no">Not run</span> with a real CBR or EPUB.</td></tr>
-        <tr><td><code>library</code></td><td>Lists the local library.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>project new</code>, <code>list</code>, <code>show</code></td><td>Creates and inspects projects.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>analyze --detector vision</code></td><td>Panels, bubbles and OCR with Apple Vision.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>analyze --detector magi</code></td><td>Panels, bubbles, characters and speakers with Magi v2.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
-        <tr><td><code>analyze --detector api</code></td><td>Vision, then a model proofreads each page.</td><td>Anthropic, OpenRouter, OpenAI, Google</td><td><span class="ok">Run</span> on Anthropic and OpenRouter. <span class="mock">Tests</span> on the others.</td></tr>
-        <tr><td><code>manga</code> skill review</td><td>Claude Code reads the pages and corrects the JSON.</td><td>Claude Code</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>read</code></td><td>Web reader to edit text, speakers and order, and listen to each line.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>voice</code></td><td>One voice per character, from <code>cast.toml</code>.</td><td>Kokoro, OpenRouter, fal, OpenAI, Google, ElevenLabs</td><td><span class="ok">Run</span> on Kokoro and OpenRouter. <span class="mock">Tests</span> on the others.</td></tr>
-        <tr><td><code>timeline</code></td><td>Builds the editable cut, keeping manual changes.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>animate</code></td><td>Marks shots for animation, with a motion prompt, sound effects and the characters in view.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>render --style scroll</code></td><td>The full-width page scrolls as it is read.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
-        <tr><td><code>render --style panels</code></td><td>One panel at a time, with zoom, pan and subtitles.</td><td>Local, with clips from any video backend</td><td><span class="ok">Run</span> with OpenRouter clips. <span class="no">Not run</span> with local Wan.</td></tr>
-        <tr><td><code>render --format vertical</code></td><td>1080×1920 reading video, with <code>--max-duration</code> and numbered parts.</td><td>Local</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>anime</code></td><td>Clean key images, clips with sound effects and a full-frame episode, with one style and remembered faces.</td><td>OpenRouter, llm-connect providers, local FLUX and Wan</td><td><span class="ok">Run</span> on OpenRouter in landscape. <span class="mock">Tests</span> on motion prompts by API. <span class="no">Not run</span> locally or through llm-connect.</td></tr>
-        <tr><td><code>anime --format vertical</code></td><td>Images and clips generated in 9:16, up to a maximum length.</td><td>OpenRouter, llm-connect providers</td><td><span class="mock">Tests</span>, with the real binary against a fake server.</td></tr>
-        <tr><td><code>run</code></td><td>Chains analyze, voice, timeline and render.</td><td>Local</td><td><span class="ok">Run</span> step by step, not chained.</td></tr>
-        <tr><td><code>characters</code></td><td>Crops the characters found by Magi, to name and reuse them.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
-        <tr><td><code>story new</code>, <code>build</code></td><td>A new manga drawn with a project's characters.</td><td>Local FLUX, OpenRouter, llm-connect providers</td><td><span class="ok">Run</span> on OpenRouter. <span class="mock">Tests</span> through llm-connect. <span class="no">Not run</span> with local FLUX.</td></tr>
-        <tr><td><code>models search</code></td><td>Current models and prices for video, image, speech and vision.</td><td>llm-models</td><td><span class="ok">Run</span></td></tr>
-        <tr><td><code>models install</code></td><td>Installs the local Wan and FLUX models.</td><td>Local</td><td><span class="no">Not run</span></td></tr>
-        <tr><td><code>uninstall</code></td><td>Removes the app folder and its links.</td><td>Local</td><td><span class="ok">Run</span> on a throwaway install.</td></tr>
+        <tr><td><code>doctor</code></td><td>Checks the tools, models and API keys.</td><td>Local</td></tr>
+        <tr><td><code>source search</code>, <code>chapters</code>, <code>fetch</code></td><td>Finds and downloads chapters from MangaDex.</td><td>MangaDex</td></tr>
+        <tr><td><code>import</code></td><td>CBZ, EPUB, PDF, CBR, or a folder of images or chapters.</td><td>Local</td></tr>
+        <tr><td><code>library</code></td><td>Lists the local library.</td><td>Local</td></tr>
+        <tr><td><code>project new</code>, <code>list</code>, <code>show</code></td><td>Creates and inspects projects.</td><td>Local</td></tr>
+        <tr><td><code>analyze --detector vision</code></td><td>Panels, bubbles and OCR with Apple Vision.</td><td>Local</td></tr>
+        <tr><td><code>analyze --detector magi</code></td><td>Panels, bubbles, characters and speakers with Magi v2.</td><td>Local</td></tr>
+        <tr><td><code>analyze --detector api</code></td><td>Vision, then a model proofreads each page.</td><td>Anthropic, OpenRouter, OpenAI, Google</td></tr>
+        <tr><td><code>manga</code> skill review</td><td>Claude Code reads the pages and corrects the JSON.</td><td>Claude Code</td></tr>
+        <tr><td><code>read</code></td><td>Web reader to edit text, speakers and order, and listen to each line.</td><td>Local</td></tr>
+        <tr><td><code>voice</code></td><td>One voice per character, from <code>cast.toml</code>.</td><td>Kokoro, OpenRouter, fal, OpenAI, Google, ElevenLabs</td></tr>
+        <tr><td><code>timeline</code></td><td>Builds the editable cut, keeping manual changes.</td><td>Local</td></tr>
+        <tr><td><code>animate</code></td><td>Marks shots for animation, with a motion prompt, sound effects and the characters in view.</td><td>Local</td></tr>
+        <tr><td><code>render --style scroll</code></td><td>The full-width page scrolls as it is read.</td><td>Local, with clips from any video backend</td></tr>
+        <tr><td><code>render --style panels</code></td><td>One panel at a time, with zoom, pan and subtitles.</td><td>Local, with clips from any video backend</td></tr>
+        <tr><td><code>render --format vertical</code></td><td>1080×1920 reading video, with <code>--max-duration</code> and numbered parts.</td><td>Local</td></tr>
+        <tr><td><code>anime</code></td><td>Clean key images, clips with sound effects and a full-frame episode, with one style and remembered faces.</td><td>OpenRouter, llm-connect providers, local FLUX and Wan</td></tr>
+        <tr><td><code>anime --format vertical</code></td><td>Images and clips generated in 9:16, up to a maximum length.</td><td>OpenRouter, llm-connect providers</td></tr>
+        <tr><td><code>run</code></td><td>Chains analyze, voice, timeline and render.</td><td>Local</td></tr>
+        <tr><td><code>characters</code></td><td>Crops the characters found by Magi, to name and reuse them.</td><td>Local</td></tr>
+        <tr><td><code>story new</code>, <code>build</code></td><td>A new manga drawn with a project's characters.</td><td>Local FLUX, OpenRouter, llm-connect providers</td></tr>
+        <tr><td><code>models search</code></td><td>Current models and prices for video, image, speech and vision.</td><td>llm-models</td></tr>
+        <tr><td><code>models install</code></td><td>Installs the local Wan and FLUX models.</td><td>Local</td></tr>
+        <tr><td><code>uninstall</code></td><td>Removes the app folder and its links.</td><td>Local</td></tr>
       </tbody>
     </table>
     </div>
@@ -407,7 +404,7 @@ episode with voices. Keep it under $4.</pre>
       <h2>Bring your own pages</h2>
       <a class="btn" href="https://github.com/maxgfr/manga-anim">Get manga-anim on GitHub</a>
     </div>
-    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, colors, animated clips and spin-off art are AI-generated. The table above says what has actually been run. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
+    <p>Demo pages from <em>Give My Regards to Black Jack</em> by SHUHO SATO, available under the <a href="https://densho810.com/free/">author's free-use terms</a>; the author is not involved with this project. Voices, colors, animated clips and spin-off art are AI-generated. The code is <a href="https://github.com/maxgfr/manga-anim/blob/main/LICENSE">MIT licensed</a>. Videos made from copyrighted work are for personal use.</p>
   </footer>
 </main>
 

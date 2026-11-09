@@ -1,5 +1,5 @@
-//! Animate mode: shots marked `"mode": "animate"` become clips generated
-//! locally by Wan2.2 TI2V-5B (mlx-video). Clips are cached in `clips/<hash>.mp4`.
+//! Animate mode: shots marked `"mode": "animate"` become clips generated locally by
+//! Wan2.2 TI2V-5B (mlx-video) or through OpenRouter. Clips are cached in `clips/<hash>.mp4`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::backend::Backend;
 use crate::home::data_dir;
 use crate::project::Project;
 use crate::render::crop_panel;
@@ -31,12 +32,25 @@ pub struct Settings {
     /// Maximum clip area in pixels: RAM is the limiting factor.
     pub max_area: u32,
     pub seed: i64,
+    pub backend: Backend,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42 }
+        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42, backend: Backend::Local }
     }
+}
+
+/// Seconds between two polls of a video job, as the OpenRouter docs suggest.
+const POLL_INTERVAL_S: u64 = 30;
+/// A clip usually takes up to several minutes; past this, the run stops and says so.
+const POLL_TIMEOUT_S: u64 = 30 * 60;
+
+/// Hashed with the panel's pixels. Local keys are unchanged, so existing clips stay valid;
+/// steps do not apply to OpenRouter, so changing them must not bill a new clip.
+fn clip_params(prompt: &str, width: u32, height: u32, settings: &Settings) -> String {
+    let steps = if settings.backend.is_local() { settings.steps } else { None };
+    format!("{prompt}|{width}x{height}|{}|{:?}|{}{}", settings.frames, steps, settings.seed, settings.backend.cache_suffix())
 }
 
 /// Clip dimensions: panel aspect ratio, multiples of 32, area ≤ max_area.
@@ -67,6 +81,16 @@ struct Job {
     items: Vec<Item>,
 }
 
+/// Never holds the API key: the worker reads it from the environment.
+#[derive(Serialize)]
+struct OpenRouterJob<'a> {
+    backend: &'static str,
+    model: &'a str,
+    poll_interval_s: u64,
+    poll_timeout_s: u64,
+    items: Vec<Item>,
+}
+
 /// Generates the missing clips. Returns shot → clip for every animated shot.
 pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result<HashMap<String, PathBuf>> {
     let animated: Vec<&&Shot> = shots.iter().filter(|s| s.mode == Mode::Animate).collect();
@@ -75,10 +99,10 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
         return Ok(clips);
     }
     let model = model_dir();
-    if !model.join("config.json").exists() {
+    if settings.backend.is_local() && !model.join("config.json").exists() {
         bail!(
-            "animation model missing ({}). Install it with `manga models install wan` (~34 GB to download), \
-             or render in motion mode with --no-animate",
+            "animation model missing ({}). Run `uv sync --extra ja --extra animate` in the workers folder, then \
+             `manga models install wan` (~34 GB to download), or render in motion mode with --no-animate",
             model.display()
         );
     }
@@ -102,7 +126,7 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
         let (width, height) = clip_size(panel.width(), panel.height(), settings.max_area);
         let mut h = Sha256::new();
         h.update(panel.as_bytes());
-        h.update(format!("{prompt}|{width}x{height}|{}|{:?}|{}", settings.frames, settings.steps, settings.seed));
+        h.update(clip_params(&prompt, width, height, settings));
         let out = project.path(format!("clips/{}.mp4", &hex::encode(h.finalize())[..16]));
         if !out.exists() {
             items.push(Item {
@@ -120,9 +144,20 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
         clips.insert(shot.id.clone(), out);
     }
     if !items.is_empty() {
-        println!("{} clips to generate with Wan2.2 (several minutes each)", items.len());
-        let job = Job { model_dir: model.to_string_lossy().into(), items };
-        worker::run("animate", &job, &project.path("work/animate_job.json"))?;
+        let job_path = project.path("work/animate_job.json");
+        match &settings.backend {
+            Backend::Local => {
+                println!("{} clips to generate with Wan2.2 (several minutes each)", items.len());
+                let job = Job { model_dir: model.to_string_lossy().into(), items };
+                worker::run("animate", &job, &job_path)?;
+            }
+            Backend::OpenRouter { model } => {
+                settings.backend.check_key()?;
+                println!("{} clips to generate with {model} on OpenRouter (billed per use; panels are sent to third parties)", items.len());
+                let job = OpenRouterJob { backend: "openrouter", model, poll_interval_s: POLL_INTERVAL_S, poll_timeout_s: POLL_TIMEOUT_S, items };
+                worker::run("animate", &job, &job_path)?;
+            }
+        }
     }
     for (id, clip) in &clips {
         if !clip.exists() {
@@ -135,6 +170,29 @@ pub fn ensure_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn openrouter(model: &str) -> Backend {
+        Backend::OpenRouter { model: model.into() }
+    }
+
+    #[test]
+    fn local_clip_key_is_unchanged() {
+        let settings = Settings { steps: Some(20), ..Default::default() };
+        assert_eq!(clip_params("wind", 640, 352, &settings), "wind|640x352|49|Some(20)|42");
+    }
+
+    #[test]
+    fn clip_key_depends_on_backend_and_model() {
+        let key = |backend| clip_params("wind", 640, 352, &Settings { backend, ..Default::default() });
+        assert_ne!(key(Backend::Local), key(openrouter("a/b")));
+        assert_ne!(key(openrouter("a/b")), key(openrouter("a/c")));
+    }
+
+    #[test]
+    fn openrouter_clip_key_ignores_steps() {
+        let key = |steps| clip_params("wind", 640, 352, &Settings { steps, backend: openrouter("a/b"), ..Default::default() });
+        assert_eq!(key(Some(20)), key(None));
+    }
 
     #[test]
     fn clip_sizes() {

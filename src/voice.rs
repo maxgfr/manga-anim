@@ -1,6 +1,6 @@
-//! Voices: `cast.toml` maps each character to a Kokoro voice, then the `tts` worker
-//! generates one WAV per bubble. The `audio/index.json` cache avoids regenerating a bubble
-//! whose text and voice haven't changed.
+//! Voices: `cast.toml` maps each character to a voice, then the `tts` worker generates one
+//! WAV per bubble, with Kokoro or through OpenRouter. The `audio/index.json` cache avoids
+//! regenerating a bubble whose text, voice and backend haven't changed.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -10,10 +10,21 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::analysis::PageAnalysis;
+use crate::backend::Backend;
 use crate::project::Project;
 use crate::worker;
 
 pub const TTS_MODEL: &str = "mlx-community/Kokoro-82M-bf16";
+const KOKORO_LANGS: [&str; 8] = ["en", "fr", "ja", "zh", "es", "it", "pt", "hi"];
+
+fn is_kokoro_voice(voice: &str) -> bool {
+    KOKORO_LANGS.iter().filter_map(|l| voices_for(l)).flatten().any(|v| v.split('@').next() == Some(voice))
+}
+
+/// Cache key of a line. Local keys are unchanged, so existing audio stays valid.
+fn line_hash(text: &str, voice: &str, speed: f64, backend: &Backend) -> String {
+    hex::encode(Sha256::digest(format!("{text}\n{voice}\n{speed}\n{TTS_MODEL}{}", backend.cache_suffix())))
+}
 
 /// Kokoro voices per language: the first is for the narrator, the others for characters.
 fn voices_for(lang: &str) -> Option<&'static [&'static str]> {
@@ -42,6 +53,7 @@ pub fn default_cast(lang: &str) -> String {
     format!(
         "# Kokoro voices: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md\n\
          # \"voice@0.9\" = same voice at speed 0.9. The first letter of the voice sets the language.\n\
+         # With `manga voice --backend openrouter`, use the voice ids of that model instead.\n\
          enabled = true\n\
          speed = 1.0\n\
          # Caption boxes and bubbles with no identified speaker.\n\
@@ -149,7 +161,10 @@ struct TtsItem {
 
 #[derive(Serialize)]
 struct TtsJob {
-    model: &'static str,
+    /// Absent for the local path. Never holds the API key: the worker reads it from the environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backend: Option<&'static str>,
+    model: String,
     items: Vec<TtsItem>,
     results: String,
 }
@@ -185,7 +200,7 @@ pub fn speakable(text: &str) -> String {
         .join(" ")
 }
 
-pub fn run(project: &Project, force: bool) -> Result<()> {
+pub fn run(project: &Project, force: bool, backend: &Backend) -> Result<()> {
     let cast = Cast::load(project)?;
     if !cast.enabled {
         println!("voices disabled in cast.toml (enabled = false): nothing to do");
@@ -204,7 +219,7 @@ pub fn run(project: &Project, force: bool) -> Result<()> {
                 continue;
             }
             let (voice, speed) = casting.voice(t.speaker.as_deref());
-            let hash = hex::encode(Sha256::digest(format!("{text}\n{voice}\n{speed}\n{TTS_MODEL}")));
+            let hash = line_hash(&text, &voice, speed, backend);
             let out = project.path(format!("audio/{}.wav", t.id));
             wanted.push(t.id.clone());
             if !force && out.exists() && index.clips.get(&t.id).is_some_and(|c| c.0 == hash) {
@@ -220,8 +235,38 @@ pub fn run(project: &Project, force: bool) -> Result<()> {
     } else {
         println!("{} lines to generate ({} already up to date)", items.len(), wanted.len() - items.len());
         let results = project.path("work/tts_durations.json");
-        let job = TtsJob { model: TTS_MODEL, items, results: results.to_string_lossy().into() };
-        worker::run("tts", &job, &project.path("work/tts_job.json"))?;
+        let (name, model) = match backend {
+            Backend::Local => (None, TTS_MODEL.to_string()),
+            Backend::OpenRouter { model } => {
+                if let Some(item) = items.iter().find(|i| is_kokoro_voice(&i.voice)) {
+                    bail!(
+                        "cast.toml uses the Kokoro voice \"{}\", which {model} does not know: set narrator, pool and [voices] to voice ids of that model",
+                        item.voice
+                    );
+                }
+                backend.check_key()?;
+                println!("using {model} on OpenRouter (billed per use; the text is sent to third parties)");
+                (Some("openrouter"), model.clone())
+            }
+        };
+        // A leftover file from an earlier run must not pass for this run's results.
+        let _ = fs::remove_file(&results);
+        let job = TtsJob { backend: name, model, items, results: results.to_string_lossy().into() };
+        let outcome = worker::run("tts", &job, &project.path("work/tts_job.json"));
+        if let Err(e) = outcome {
+            // An interrupted OpenRouter run leaves partial results: keep the lines already paid for.
+            if let Ok(text) = fs::read_to_string(&results) {
+                let durations: HashMap<String, f64> = serde_json::from_str(&text)?;
+                for (id, hash) in hashes {
+                    if let Some(d) = durations.get(&id) {
+                        index.clips.insert(id, (hash, *d));
+                    }
+                }
+                fs::create_dir_all(project.path("audio"))?;
+                fs::write(project.path("audio/index.json"), serde_json::to_string_pretty(&index)?)?;
+            }
+            return Err(e);
+        }
         let durations: HashMap<String, f64> = serde_json::from_str(&fs::read_to_string(&results)?)?;
         for (id, hash) in hashes {
             let Some(d) = durations.get(&id) else { bail!("missing duration for {id}") };
@@ -236,6 +281,31 @@ pub fn run(project: &Project, force: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn openrouter(model: &str) -> Backend {
+        Backend::OpenRouter { model: model.into() }
+    }
+
+    #[test]
+    fn local_line_hash_is_unchanged() {
+        let expected = hex::encode(Sha256::digest(format!("Hi\nam_adam\n1\n{TTS_MODEL}")));
+        assert_eq!(line_hash("Hi", "am_adam", 1.0, &Backend::Local), expected);
+    }
+
+    #[test]
+    fn line_hash_depends_on_backend_and_model() {
+        let key = |b: &Backend| line_hash("Hi", "alloy", 1.0, b);
+        assert_ne!(key(&Backend::Local), key(&openrouter("a/b")));
+        assert_ne!(key(&openrouter("a/b")), key(&openrouter("a/c")));
+    }
+
+    #[test]
+    fn kokoro_voices_are_recognized() {
+        assert!(is_kokoro_voice("af_heart"));
+        assert!(is_kokoro_voice("ff_siwis"));
+        assert!(!is_kokoro_voice("alloy"));
+        assert!(!is_kokoro_voice("en-US-Harper:MAI-Voice-2.1"));
+    }
 
     #[test]
     fn casting_is_stable() {

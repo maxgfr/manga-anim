@@ -15,7 +15,16 @@ from pathlib import Path
 
 def install_wan(job: dict) -> None:
     from huggingface_hub import snapshot_download
-    from mlx_video.models.wan_2.convert import convert_wan_checkpoint
+
+    try:
+        from mlx_video.models.wan_2.convert import convert_wan_checkpoint
+    except ModuleNotFoundError as e:
+        if e.name is None or not e.name.startswith("mlx_video"):
+            raise
+        raise SystemExit(
+            "mlx-video is not installed: run `uv sync --extra ja --extra animate` in the workers folder, then rerun this command "
+            "(keep --extra ja: syncing without it removes the Japanese OCR)."
+        ) from None
 
     src = Path(job["src_dir"])
     snapshot_download("Wan-AI/Wan2.2-TI2V-5B", local_dir=src, allow_patterns=["*.json", "*.safetensors", "*.pth"])

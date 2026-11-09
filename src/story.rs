@@ -1,8 +1,9 @@
 //! Spin-off: a new manga using the characters of an existing project.
 //!
 //! `story.json` (written by Claude through the skill) describes pages, panels, prompts and bubbles.
-//! `manga story build` has FLUX.2 [klein] draw the panels (`draw` worker), composes the
-//! pages and writes their analysis: the project can then be read, dubbed and rendered like any other.
+//! `manga story build` has FLUX.2 [klein] (`draw` worker) or an OpenRouter image model draw the
+//! panels, composes the pages and writes their analysis: the project can then be read, dubbed and
+//! rendered like any other.
 
 use std::collections::BTreeMap;
 use std::f64::consts::SQRT_2;
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::analysis::{BBox, PageAnalysis, Panel, TextBox};
+use crate::backend::Backend;
 use crate::captions::wrap;
 use crate::home::{caption_font, data_dir, slugify};
 use crate::project::{Direction, PageRef, Project, ProjectConfig};
@@ -478,6 +480,14 @@ pub struct BuildOptions {
     /// False: compose without calling the model; panels not drawn yet stay gray.
     pub draw: bool,
     pub steps: u32,
+    pub backend: Backend,
+}
+
+/// Hashed with the reference images. Local keys are unchanged, so existing panels stay valid;
+/// steps do not apply to OpenRouter, so changing them must not bill a new panel.
+fn panel_params(prompt: &str, width: u32, height: u32, seed: u64, steps: u32, backend: &Backend) -> String {
+    let steps = if backend.is_local() { steps } else { 0 };
+    format!("{prompt}|{width}x{height}|{seed}|{steps}{}", backend.cache_suffix())
 }
 
 #[derive(Serialize)]
@@ -498,6 +508,13 @@ struct DrawJob {
     items: Vec<DrawItem>,
 }
 
+/// Never holds the API key: the worker reads it from the environment.
+#[derive(Serialize)]
+struct OpenRouterDrawJob<'a> {
+    model: &'a str,
+    items: Vec<DrawItem>,
+}
+
 /// Draws the missing panels (content-addressed cache in `panels/`), composes the pages,
 /// writes `pages/`, `analysis/` and `project.toml`. Returns the project and the number of gray panels.
 pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
@@ -514,7 +531,7 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
             let prompt = story.panel_prompt(panel, &refs);
             let (width, height) = draw_size(rect);
             let mut h = Sha256::new();
-            h.update(format!("{prompt}|{width}x{height}|{}|{}", panel.seed, opts.steps));
+            h.update(panel_params(&prompt, width, height, panel.seed, opts.steps, &opts.backend));
             for (_, r) in &refs {
                 h.update(fs::read(r).with_context(|| format!("{id}: reference not found: {}", r.display()))?);
             }
@@ -536,17 +553,28 @@ pub fn build(name: &str, opts: &BuildOptions) -> Result<(Project, usize)> {
         plans.push((rects, files));
     }
     if !items.is_empty() {
-        let model = model_dir();
-        if !model.exists() {
-            bail!(
-                "drawing model missing ({}). Install it with `manga models install flux2` (~15 GB downloaded, ~5 GB kept), \
-                 or compose without drawing using --no-draw",
-                model.display()
-            );
+        let job_path = root.join("work/draw_job.json");
+        match &opts.backend {
+            Backend::Local => {
+                let model = model_dir();
+                if !model.exists() {
+                    bail!(
+                        "drawing model missing ({}). Install it with `manga models install flux2` (~15 GB downloaded, ~5 GB kept), \
+                         or compose without drawing using --no-draw",
+                        model.display()
+                    );
+                }
+                println!("{} panels to draw with FLUX.2 [klein]", items.len());
+                let job = DrawJob { model_dir: model.to_string_lossy().into(), items };
+                worker::run_in(worker::Env::Draw, "draw", &job, &job_path)?;
+            }
+            Backend::OpenRouter { model } => {
+                opts.backend.check_key()?;
+                println!("{} panels to draw with {model} on OpenRouter (billed per use; prompts and character references are sent to third parties)", items.len());
+                // The main venv is enough: this path does not use mflux.
+                worker::run("draw_openrouter", &OpenRouterDrawJob { model, items }, &job_path)?;
+            }
         }
-        println!("{} panels to draw with FLUX.2 [klein]", items.len());
-        let job = DrawJob { model_dir: model.to_string_lossy().into(), items };
-        worker::run_in(worker::Env::Draw, "draw", &job, &root.join("work/draw_job.json"))?;
     }
 
     // Pages and their analysis derive entirely from the story: rewrite them.
@@ -601,6 +629,21 @@ mod tests {
         let s: Story = serde_json::from_str(json)?;
         s.validate()?;
         Ok(s)
+    }
+
+    #[test]
+    fn local_panel_key_is_unchanged() {
+        assert_eq!(panel_params("a", 16, 32, 7, 4, &Backend::Local), "a|16x32|7|4");
+    }
+
+    #[test]
+    fn panel_key_depends_on_backend_and_model() {
+        let key = |b: &Backend| panel_params("a", 16, 32, 7, 4, b);
+        let (x, y) = (Backend::OpenRouter { model: "a/b".into() }, Backend::OpenRouter { model: "a/c".into() });
+        assert_ne!(key(&Backend::Local), key(&x));
+        assert_ne!(key(&x), key(&y));
+        // Steps do not exist on OpenRouter: changing them must not bill a new panel.
+        assert_eq!(panel_params("a", 16, 32, 7, 4, &x), panel_params("a", 16, 32, 7, 8, &x));
     }
 
     #[test]

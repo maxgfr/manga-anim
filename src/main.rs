@@ -5,6 +5,7 @@
 
 mod analysis;
 mod animate;
+mod backend;
 mod captions;
 mod characters;
 mod doctor;
@@ -26,6 +27,7 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
+use crate::backend::{Backend, BackendKind};
 use crate::project::{Direction, PagePos, Project};
 use crate::timeline::{Mode, Timeline};
 
@@ -85,6 +87,12 @@ enum Cmd {
         project: String,
         #[arg(long)]
         force: bool,
+        /// local (Kokoro) or openrouter (billed, sends the text to third parties; voices in cast.toml are the model's own).
+        #[arg(long, value_enum, default_value = "local")]
+        backend: BackendKind,
+        /// OpenRouter model id, required with --backend openrouter.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Build timeline.json (the edit), keeping manual adjustments.
     Timeline {
@@ -142,6 +150,12 @@ enum Cmd {
         /// Maximum area of an animated clip, in pixels.
         #[arg(long, default_value_t = 640 * 352)]
         max_area: u32,
+        /// Where animated clips are generated: local (Wan2.2) or openrouter (billed, sends panels to third parties).
+        #[arg(long, value_enum, default_value = "local")]
+        backend: BackendKind,
+        /// OpenRouter model id, required with --backend openrouter.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Run analyze → voice → timeline → render in sequence.
     Run {
@@ -261,6 +275,12 @@ enum StoryCmd {
         no_draw: bool,
         #[arg(long, default_value_t = 4)]
         steps: u32,
+        /// Where panels are drawn: local (FLUX.2 klein) or openrouter (billed, sends prompts and character references to third parties).
+        #[arg(long, value_enum, default_value = "local")]
+        backend: BackendKind,
+        /// OpenRouter model id, required with --backend openrouter.
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -351,6 +371,14 @@ fn render(project: &Project, out: Option<PathBuf>, mut opts: render::RenderOptio
 }
 
 fn main() -> Result<()> {
+    match dispatch() {
+        // The worker already printed a one-line error.
+        Err(e) if e.is::<worker::Reported>() => std::process::exit(1),
+        other => other,
+    }
+}
+
+fn dispatch() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Doctor => doctor::run(),
@@ -474,7 +502,10 @@ fn main() -> Result<()> {
         },
         Cmd::Analyze { project, detector, force } => analyze(&Project::open(&project)?, &detector, force)?,
         Cmd::Read { project, port, no_open } => reader::serve(Project::open(&project)?, port, !no_open)?,
-        Cmd::Voice { project, force } => voice::run(&Project::open(&project)?, force)?,
+        Cmd::Voice { project, force, backend, model } => {
+            let backend = Backend::parse(backend, model)?;
+            voice::run(&Project::open(&project)?, force, &backend)?;
+        }
         Cmd::Timeline { project, page_intro, reset } => {
             let p = Project::open(&project)?;
             let opts = timeline::Options { page_intro, ..Default::default() };
@@ -497,8 +528,9 @@ fn main() -> Result<()> {
             }
             tl.save(&p)?;
         }
-        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area } => {
-            let settings = animate::Settings { frames, steps, max_area, ..Default::default() };
+        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area, backend, model } => {
+            let backend = Backend::parse(backend, model)?;
+            let settings = animate::Settings { frames, steps, max_area, backend, ..Default::default() };
             let captions = captions || (!no_captions && style == render::Style::Panels);
             let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs };
             render(&Project::open(&project)?, out, opts, no_animate, settings)?;
@@ -506,7 +538,7 @@ fn main() -> Result<()> {
         Cmd::Run { project, detector, no_animate } => {
             let p = Project::open(&project)?;
             analyze(&p, &detector, false)?;
-            voice::run(&p, false)?;
+            voice::run(&p, false, &Backend::Local)?;
             timeline::run(&p, &timeline::Options::default(), false)?;
             let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4 };
             render(&p, None, opts, no_animate, animate::Settings::default())?;
@@ -528,8 +560,9 @@ fn main() -> Result<()> {
                 let path = story::new(&name, &Project::open(&from)?, lang, direction)?;
                 println!("script: {}\nWrite the story, then run: manga story build {}", path.display(), home::slugify(&name));
             }
-            StoryCmd::Build { name, pages, no_draw, steps } => {
-                let (p, pending) = story::build(&name, &story::BuildOptions { pages, draw: !no_draw, steps })?;
+            StoryCmd::Build { name, pages, no_draw, steps, backend, model } => {
+                let backend = Backend::parse(backend, model)?;
+                let (p, pending) = story::build(&name, &story::BuildOptions { pages, draw: !no_draw, steps, backend })?;
                 println!("{} pages → {}", p.cfg.pages.len(), p.path("pages").display());
                 if pending > 0 {
                     println!("{pending} panels not drawn yet (shown in gray)");
@@ -561,4 +594,39 @@ fn main() -> Result<()> {
         },
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn voice_args(args: &[&str]) -> (BackendKind, Option<String>) {
+        match Cli::try_parse_from([&["manga", "voice", "p"], args].concat()).unwrap().cmd {
+            Cmd::Voice { backend, model, .. } => (backend, model),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn backend_defaults_to_local() {
+        assert_eq!(voice_args(&[]), (BackendKind::Local, None));
+        for args in [vec!["manga", "render", "p"], vec!["manga", "story", "build", "p"]] {
+            let cmd = Cli::try_parse_from(args).unwrap().cmd;
+            let backend = match cmd {
+                Cmd::Render { backend, .. } => backend,
+                Cmd::Story { cmd: StoryCmd::Build { backend, .. } } => backend,
+                _ => unreachable!(),
+            };
+            assert_eq!(backend, BackendKind::Local);
+        }
+    }
+
+    #[test]
+    fn backend_flags_parse_on_every_step() {
+        assert_eq!(voice_args(&["--backend", "openrouter", "--model", "a/b"]), (BackendKind::OpenRouter, Some("a/b".into())));
+        for sub in [vec!["manga", "render", "p"], vec!["manga", "story", "build", "p"]] {
+            Cli::try_parse_from([sub, vec!["--backend", "openrouter", "--model", "a/b"]].concat()).unwrap();
+        }
+        assert!(Cli::try_parse_from(["manga", "voice", "p", "--backend", "nope"]).is_err());
+    }
 }

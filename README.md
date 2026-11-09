@@ -1,6 +1,7 @@
 # manga-anim
 
-CLI that turns manga pages into video, locally on a Mac (Apple Silicon).
+CLI that turns manga pages into video, locally on a Mac (Apple Silicon). Voices, animation and
+drawing can optionally run through [OpenRouter](#generation-backends) instead of local models.
 
 - **Reading video**: panel and speech bubble detection, multilingual OCR, a synthetic voice per
   character. By default the full-width page scrolls from panel to panel as the text is read
@@ -51,7 +52,13 @@ mkdir -p "$P/share/manga-anim" && cp -R workers skills "$P/share/manga-anim/"
 manga doctor        # prints the uv sync command to run to create the venv
 ```
 
-Animation is optional: `manga models install wan --bits 4` (~34 GB downloaded, converted in `data/models/`, then the source is deleted).
+Animation is optional and needs the `animate` extra first, otherwise the install fails with
+`No module named 'mlx_video'`:
+
+```sh
+(cd workers && uv sync --extra ja --extra animate)   # keep --extra ja: syncing without it removes it
+manga models install wan --bits 4                    # ~34 GB downloaded, converted in data/models/, then the source is deleted
+```
 
 ## Example
 
@@ -94,7 +101,46 @@ transformers 5, Magi transformers 4. `uv` creates it on the first `manga story b
 
 The `api` and `claude-code` modes send the pages to Anthropic. The `api` mode requires
 `ant auth login` or `ANTHROPIC_API_KEY` and is billed by usage; it does not need the Magi model.
-Voices, drawing, animation, editing and rendering stay local in all three modes.
+Voices, drawing, animation, editing and rendering stay local in all three modes, unless you
+choose the OpenRouter backend below.
+
+## Generation backends
+
+Voices, animation and drawing run on local models by default. With an `OPENROUTER_API_KEY`, each
+of them can run on [OpenRouter](https://openrouter.ai) instead, with no large model to download.
+
+> **OpenRouter is billed per use and sends your data to third parties**: panels for animation,
+> prompts and character reference images for drawing, the dialogue text for voices, to OpenRouter
+> and the provider serving the model. Do not use it for pages you cannot share, and check the
+> model's price first. Nothing is sent unless you pass `--backend openrouter`.
+
+| Step | Command | Model ids |
+|---|---|---|
+| Animation | `manga render <name> --backend openrouter --model <id>` | [video models](https://openrouter.ai/models?output_modalities=video), which must accept a first frame |
+| Voices | `manga voice <name> --backend openrouter --model <id>` | [speech models](https://openrouter.ai/models?output_modalities=speech), which must output MP3 |
+| Drawing | `manga story build <name> --backend openrouter --model <id>` | [image models](https://openrouter.ai/models?output_modalities=image), with `input_references` if panels use character refs |
+
+```sh
+export OPENROUTER_API_KEY=...         # read from the environment only, never written to job files
+```
+
+`--model` is required: there is no default, because the model decides what you pay. The clips,
+WAV files and panels produced are the same as with the local models, and the cache key includes
+the backend and the model, so switching never reuses the wrong result (and local caches stay valid).
+A run stopped by a missing key, a rejected key (401), a lack of credits (402) or a failed job
+prints a one-line error; what was finished stays cached, so rerunning does not pay for it again.
+
+- **Voices**: `cast.toml` still maps characters to voices, and each value is sent as is in the
+  `voice` field of the request, so use ids of the chosen model (such as `alloy` or `Kore`) rather
+  than Kokoro names, which are refused before any call. `voice@0.9` still means speed 0.9, applied
+  locally with ffmpeg, so a voice id cannot contain `@`. Audio is requested as MP3 and converted to
+  the 24 kHz WAV the pipeline uses; models that only output PCM are not supported, as the API does
+  not state the sample rate of its raw PCM.
+- **Animation**: duration, aspect ratio and resolution are chosen from what the model declares, then
+  the clip is cropped to the panel's shape and its audio dropped. `--steps` has no effect.
+- **Drawing**: characters are sent as reference images; a model that does not accept them, or
+  not that many, stops the build before anything is billed. `--steps` has no effect, and `seed` is
+  only sent when the model supports it.
 
 ## Sources
 
@@ -110,7 +156,7 @@ are for personal use.
 | Part | Role |
 |---|---|
 | `src/` (Rust) | CLI, library, sources, project, timeline, ffmpeg rendering, PNG captions, axum reader |
-| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX), `animate` (mlx-video Wan2.2), `models` |
+| `workers/mangaw` (Python, uv) | `analyze` (Magi v2 / Vision + OpenCV), `ocr` (Apple Vision, manga-ocr), `tts` (Kokoro MLX or OpenRouter), `animate` (mlx-video Wan2.2 or OpenRouter), `draw_openrouter`, `openrouter` (HTTP client), `models` |
 | `workers/draw/mangadraw` (Python, uv, separate venv) | `draw` (FLUX.2 [klein] via mflux), `models` |
 
 Rust and Python exchange JSON files (`projects/<name>/work/*_job.json` → `analysis/*.json`,
@@ -121,7 +167,11 @@ Rust and Python exchange JSON files (`projects/<name>/work/*_job.json` → `anal
 ```sh
 cargo test                       # unit tests
 cargo test -- --ignored          # E2E: synthetic CBZ → video (macOS, workers installed)
+workers/.venv/bin/python -m unittest discover -s workers/tests   # OpenRouter paths against a mock server
 ```
+
+`MANGA_OPENROUTER_BASE_URL` points the workers at that mock; it exists for tests only and accepts
+loopback addresses only.
 
 ## Models and licenses
 

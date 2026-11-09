@@ -131,7 +131,7 @@ enum Cmd {
         /// Anime: the sound effects of these shots ("knuckles knocking on a door").
         #[arg(long)]
         sound: Option<String>,
-        /// Anime: who is visible in these shots, by name in characters/ (Saito,Kit).
+        /// Anime: who is visible in these shots, by name in characters/ (Kit,Ann).
         #[arg(long, value_delimiter = ',')]
         characters: Vec<String>,
     },

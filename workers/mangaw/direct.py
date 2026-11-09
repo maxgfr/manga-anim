@@ -19,7 +19,7 @@ MAX_CHARS = 400
 SYSTEM = """You direct the anime adaptation of a manga. You get one panel, the lines spoken over it and the names of the known characters.
 
 Reply with three fields, in English:
-- prompt: one sentence, under 30 words, saying what visibly moves during this shot of a few seconds: gestures, expressions, hair, cloth, light, background. Stay faithful to what the panel shows. Never quote dialogue, never ask for on-screen text and never ask for a camera cut. If a face is hidden, keep it hidden.
+- prompt: one sentence, under 30 words, saying what visibly moves during this shot of a few seconds: gestures, expressions, hair, cloth, light, background. Stay faithful to what the panel shows. When someone talks and their face is visible, say whose lips move by how they look and where they are, never by name (the video model knows no names), and never write that they talk or speak (the video model would voice the line). Never quote dialogue, never ask for on-screen text and never ask for a camera cut. If a face is hidden, keep it hidden.
 - sound: one short phrase listing the sound effects heard in this shot. Turn every onomatopoeia printed in the panel into the real sound (KNOCK becomes "knuckles knocking on a door") and add what the action makes. Never mention speech or music.
 - characters: the known characters visible in the panel, using exactly the given names.
 

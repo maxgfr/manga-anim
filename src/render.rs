@@ -38,6 +38,31 @@ pub enum Style {
     Anime,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Format {
+    /// 1920×1080.
+    Landscape,
+    /// 1080×1920, for TikTok, YouTube Shorts and Reels.
+    Vertical,
+}
+
+impl Format {
+    pub fn frame(self) -> (u32, u32) {
+        match self {
+            Format::Landscape => (1920, 1080),
+            Format::Vertical => (1080, 1920),
+        }
+    }
+}
+
+/// The shape of the output of `manga render`.
+pub struct Output {
+    pub format: Format,
+    pub max_duration: Option<f64>,
+    pub split: bool,
+}
+
+#[derive(Clone)]
 pub struct RenderOptions {
     pub out: PathBuf,
     pub style: Style,
@@ -122,7 +147,8 @@ pub struct CaptionPlacement {
 
 /// ffmpeg filtergraph for a shot. Inputs: 0 = panel (image or clip), 1..=n = captions,
 /// then the audio tracks.
-pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), captions: &[CaptionPlacement], audio_starts: &[f64]) -> String {
+#[allow(clippy::too_many_arguments)]
+pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), captions: &[CaptionPlacement], audio_starts: &[f64], clip_sound: bool) -> String {
     let (w, h) = frame;
     let frames = (duration * fps as f64).ceil() as u32;
     let ease = format!("(1-cos(PI*min(t/{duration:.3}\\,1)))/2");
@@ -166,16 +192,18 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
         }
     }
     if !matches!(cam, Camera::Scroll { .. } | Camera::Cover | Camera::CoverStill { .. }) {
+        let (bw, bh) = if h > w { (270, 480) } else { (480, 270) };
         write!(
             g,
             "[fg]split[fga][fgb];\
-             [fgb]scale=480:270:force_original_aspect_ratio=increase,crop=480:270,gblur=sigma=10,\
+             [fgb]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=10,\
              colorchannelmixer=rr=0.45:gg=0.45:bb=0.45,scale={w}:{h},setsar=1[bg];\
              [bg][fga]overlay=x=(W-w)/2:y=(H-h)/2[v0];"
         )
         .unwrap();
     }
-    let margin = (h as f64 * 0.045) as u32;
+    // On a phone, the app's own buttons cover the bottom of a vertical video.
+    let margin = (h as f64 * if h > w { 0.16 } else { 0.045 }) as u32;
     for (i, c) in captions.iter().enumerate() {
         write!(
             g,
@@ -192,15 +220,31 @@ pub fn filter_graph(cam: &Camera, duration: f64, fps: u32, frame: (u32, u32), ca
     write!(g, "[v{}]format=yuv420p[vout]", captions.len()).unwrap();
 
     let first_audio = 1 + captions.len();
+    // The clip's own sound effects, at the same level from one shot to the next.
+    let bed = "[0:a]loudnorm=I=-20:TP=-2,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
     if audio_starts.is_empty() {
-        write!(g, ";anullsrc=r=48000:cl=stereo[aout]").unwrap();
+        match clip_sound {
+            true => write!(g, ";{bed},apad[aout]").unwrap(),
+            false => write!(g, ";anullsrc=r=48000:cl=stereo[aout]").unwrap(),
+        }
     } else {
         for (i, start) in audio_starts.iter().enumerate() {
             let ms = (start * 1000.0).round() as u64;
             write!(g, ";[{}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay={ms}:all=1[a{i}]", first_audio + i).unwrap();
         }
         let inputs: String = (0..audio_starts.len()).map(|i| format!("[a{i}]")).collect();
-        write!(g, ";{inputs}amix=inputs={}:normalize=0:duration=longest,volume=1.8,apad[aout]", audio_starts.len()).unwrap();
+        let voices = format!("{inputs}amix=inputs={}:normalize=0:duration=longest,volume=1.8", audio_starts.len());
+        if clip_sound {
+            // The effects duck under the voices.
+            write!(
+                g,
+                ";{voices},asplit=2[vo][key];{bed},apad[bed];[bed][key]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=350[fx];\
+                 [vo][fx]amix=inputs=2:normalize=0:duration=longest,apad[aout]"
+            )
+            .unwrap();
+        } else {
+            write!(g, ";{voices},apad[aout]").unwrap();
+        }
     }
     g
 }
@@ -280,6 +324,29 @@ fn cache_key(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>,
     Ok(hex::encode(h.finalize())[..12].to_string())
 }
 
+/// Whether a generated clip came with a sound track.
+fn has_audio(clip: &Path) -> bool {
+    Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0"])
+        .arg(clip)
+        .output()
+        .is_ok_and(|o| !o.stdout.is_empty())
+}
+
+/// The loudest level of a `max_volume: -12.3 dB` line from ffmpeg's volumedetect.
+fn max_volume(report: &str) -> Option<f64> {
+    report.lines().find_map(|l| l.split("max_volume:").nth(1)?.trim().strip_suffix("dB")?.trim().parse().ok())
+}
+
+/// Below this, a clip's sound track is silence or noise floor, not sound effects.
+const AUDIBLE_DB: f64 = -45.0;
+
+/// Whether a clip has sound anyone would hear. A model can return a silent track.
+pub fn is_audible(clip: &Path) -> bool {
+    let probe = Command::new("ffmpeg").args(["-hide_banner", "-nostats", "-i"]).arg(clip).args(["-af", "volumedetect", "-vn", "-f", "null", "-"]).output();
+    probe.is_ok_and(|o| max_volume(&String::from_utf8_lossy(&o.stderr)).is_some_and(|db| db > AUDIBLE_DB))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path>, scroll: Option<(f64, f64)>, style: &CaptionStyle, opts: &RenderOptions, out: &Path) -> Result<()> {
     let work = out.with_extension("parts");
@@ -322,7 +389,8 @@ fn render_shot(project: &Project, tl: &Timeline, shot: &Shot, clip: Option<&Path
     }
     let audio: Vec<(f64, PathBuf)> = shot.lines.iter().filter_map(|l| l.audio.as_ref().map(|a| (l.start, project.path(a)))).collect();
     let starts: Vec<f64> = audio.iter().map(|a| a.0).collect();
-    let graph = filter_graph(&cam, shot.duration, tl.fps, frame, &placements, &starts);
+    let clip_sound = matches!(cam, Camera::Cover) && clip.is_some_and(has_audio);
+    let graph = filter_graph(&cam, shot.duration, tl.fps, frame, &placements, &starts, clip_sound);
 
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
@@ -362,6 +430,45 @@ pub fn select<'a>(tl: &'a Timeline, wanted: &[String]) -> Result<Vec<&'a Shot>> 
         .map(|w| match w.parse::<usize>() {
             Ok(n) if n >= 1 && n <= tl.shots.len() => Ok(&tl.shots[n - 1]),
             _ => tl.shots.iter().find(|s| &s.id == w).with_context(|| format!("unknown shot: {w}")),
+        })
+        .collect()
+}
+
+/// Groups shots, in order and without cutting one, so each group lasts at most `max` seconds.
+/// Without `split`, only the first group is kept. A shot longer than `max` is a group of its own.
+pub fn parts(shots: &[&Shot], max: Option<f64>, split: bool) -> Vec<Vec<String>> {
+    let Some(max) = max else { return vec![shots.iter().map(|s| s.id.clone()).collect()] };
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut length = f64::INFINITY;
+    for shot in shots {
+        if length + shot.duration > max {
+            groups.push(Vec::new());
+            length = 0.0;
+        }
+        groups.last_mut().unwrap().push(shot.id.clone());
+        length += shot.duration;
+    }
+    if !split {
+        groups.truncate(1);
+    }
+    groups
+}
+
+fn part_path(out: &Path, n: usize) -> PathBuf {
+    let stem = out.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = out.extension().unwrap_or_default().to_string_lossy();
+    out.with_file_name(format!("{stem}-part{n}.{extension}"))
+}
+
+/// Renders one file per group of shots, numbered when there are several.
+pub fn run_parts(project: &Project, tl: &Timeline, clips: &HashMap<String, PathBuf>, opts: RenderOptions, groups: Vec<Vec<String>>) -> Result<Vec<PathBuf>> {
+    let several = groups.len() > 1;
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, shots)| {
+            let out = if several { part_path(&opts.out, i + 1) } else { opts.out.clone() };
+            run(project, tl, clips, &RenderOptions { out, shots, ..opts.clone() })
         })
         .collect()
 }
@@ -471,13 +578,13 @@ mod tests {
     fn graph_wires_captions_and_audio() {
         let cam = Camera::Zoom { fw: 994, fh: 994, from: 1.0, to: 1.1 };
         let caps = [CaptionPlacement { w: 800, h: 100, start: 0.4, end: 2.0 }];
-        let g = filter_graph(&cam, 3.0, 30, (1920, 1080), &caps, &[0.4]);
+        let g = filter_graph(&cam, 3.0, 30, (1920, 1080), &caps, &[0.4], false);
         assert!(g.contains("zoompan=z='1+(1.1-1)*on/90'"));
         assert!(g.contains("[v0][1:v]overlay=x=560:y=932:enable='between(t\\,0.400\\,2.000)'[v1]"));
         assert!(g.contains("[2:a]aresample=48000"));
         assert!(g.contains("adelay=400:all=1"));
         assert!(g.contains("[v1]format=yuv420p[vout]"));
-        let silent = filter_graph(&cam, 3.0, 30, (1920, 1080), &[], &[]);
+        let silent = filter_graph(&cam, 3.0, 30, (1920, 1080), &[], &[], false);
         assert!(silent.ends_with("anullsrc=r=48000:cl=stereo[aout]"));
     }
 
@@ -492,23 +599,74 @@ mod tests {
             prompt: None,
             skip: false,
             extra: 0.0,
+            sound: None,
+            characters: Vec::new(),
             lines: Vec::new(),
         }
     }
 
     #[test]
     fn anime_clip_fills_the_frame_and_holds_its_last_image() {
-        let g = filter_graph(&Camera::Cover, 6.0, 30, (1920, 1080), &[], &[]);
+        let g = filter_graph(&Camera::Cover, 6.0, 30, (1920, 1080), &[], &[], false);
         assert!(g.starts_with("[0:v]scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,fps=30,tpad=stop_mode=clone:stop=-1,setsar=1[v0];"));
         assert!(!g.contains("gblur"), "no blurred background");
     }
 
     #[test]
     fn anime_still_fills_the_frame() {
-        let g = filter_graph(&Camera::CoverStill { from: 1.0, to: 1.08 }, 3.0, 30, (1920, 1080), &[], &[]);
+        let g = filter_graph(&Camera::CoverStill { from: 1.0, to: 1.08 }, 3.0, 30, (1920, 1080), &[], &[], false);
         assert!(g.contains("crop=3840:2160,zoompan=z='1+(1.08-1)*on/90'"));
         assert!(g.contains(":s=1920x1080:fps=30,setsar=1[v0];"));
         assert!(!g.contains("gblur"), "no blurred background");
+    }
+
+    #[test]
+    fn clip_sound_ducks_under_the_voices() {
+        let g = filter_graph(&Camera::Cover, 3.0, 30, (1920, 1080), &[], &[0.4], true);
+        assert!(g.contains("[0:a]loudnorm"));
+        assert!(g.contains("[bed][key]sidechaincompress"));
+        assert!(g.contains("[vo][fx]amix=inputs=2"));
+        assert!(g.ends_with("apad[aout]"));
+    }
+
+    #[test]
+    fn clip_sound_plays_alone_on_a_silent_shot() {
+        let g = filter_graph(&Camera::Cover, 3.0, 30, (1920, 1080), &[], &[], true);
+        assert!(g.contains("[0:a]loudnorm") && g.ends_with("apad[aout]"));
+        assert!(!g.contains("anullsrc") && !g.contains("sidechain"));
+    }
+
+    #[test]
+    fn vertical_keeps_captions_above_the_app_buttons() {
+        let cam = Camera::Cover;
+        let caps = [CaptionPlacement { w: 800, h: 100, start: 0.0, end: 1.0 }];
+        let g = filter_graph(&cam, 3.0, 30, (1080, 1920), &caps, &[], false);
+        assert!(g.contains("overlay=x=140:y=1513"), "{g}");
+        assert!(g.contains("scale=1080:1920:force_original_aspect_ratio=increase"));
+    }
+
+    fn timed(id: &str, duration: f64) -> Shot {
+        Shot { duration, ..shot(id, "1.png", [0.0, 0.0, 1.0, 1.0]) }
+    }
+
+    #[test]
+    fn parts_never_cut_a_shot() {
+        let shots = [timed("a", 20.0), timed("b", 30.0), timed("c", 20.0), timed("d", 90.0), timed("e", 5.0)];
+        let refs: Vec<&Shot> = shots.iter().collect();
+        assert_eq!(parts(&refs, Some(60.0), true), [vec!["a", "b"], vec!["c"], vec!["d"], vec!["e"]]);
+        assert_eq!(parts(&refs, Some(60.0), false), [vec!["a", "b"]], "without split, the first part only");
+        assert_eq!(parts(&refs, None, false).len(), 1);
+    }
+
+    #[test]
+    fn loudness_is_read_from_the_ffmpeg_report() {
+        assert_eq!(max_volume("[Parsed_volumedetect_0 @ 0x1] mean_volume: -22.3 dB\n[Parsed_volumedetect_0 @ 0x1] max_volume: -14.9 dB\n"), Some(-14.9));
+        assert_eq!(max_volume("no audio here"), None);
+    }
+
+    #[test]
+    fn part_files_are_numbered() {
+        assert_eq!(part_path(Path::new("/o/a-vertical.mp4"), 2), Path::new("/o/a-vertical-part2.mp4"));
     }
 
     #[test]
@@ -540,7 +698,7 @@ mod tests {
 
     #[test]
     fn scroll_graph_crops_without_background() {
-        let g = filter_graph(&Camera::Scroll { y0: 10.0, y1: 250.0 }, 4.0, 30, (1920, 1080), &[], &[]);
+        let g = filter_graph(&Camera::Scroll { y0: 10.0, y1: 250.0 }, 4.0, 30, (1920, 1080), &[], &[], false);
         assert!(g.starts_with("[0:v]fps=30,crop=1920:1080:x=0:y='10.00+(240.00)*min(t/4.000\\,1)',setsar=1[v0];"));
         assert!(!g.contains("gblur"));
     }

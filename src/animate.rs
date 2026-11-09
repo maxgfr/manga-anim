@@ -24,7 +24,7 @@ Keep the exact drawing style, line art and composition. No camera cut, no text."
 /// `manga anime`: the first frame is already a clean anime still, so the colors come from it.
 const ANIME_PROMPT: &str = "Shot from a Japanese TV anime, fluid hand-drawn 2D animation. \
 Keep the exact characters, colors, art style and framing of the first frame. No camera cut, no text, no speech bubbles.";
-const TALKING: &str = "The speaking character's mouth moves naturally.";
+const NO_VOICES: &str = "Only these sound effects and quiet room tone: no speech, no voices, no music.";
 
 pub fn model_dir() -> PathBuf {
     data_dir().join("models/wan2.2-ti2v-5b-mlx")
@@ -43,11 +43,15 @@ pub struct Settings {
     pub keyframes: HashMap<String, PathBuf>,
     /// `manga anime`: clips last as long as their shot and use the anime prompt.
     pub anime: bool,
+    /// `manga anime`: the project's art style, the same in every prompt.
+    pub art: String,
+    /// `manga anime`: the model generates the sound effects along with the picture.
+    pub sound: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42, backend: Backend::Local, keyframes: HashMap::new(), anime: false }
+        Self { frames: 49, steps: None, max_area: 640 * 352, seed: 42, backend: Backend::Local, keyframes: HashMap::new(), anime: false, art: String::new(), sound: false }
     }
 }
 
@@ -86,16 +90,28 @@ fn shot_frames(shot: &Shot, settings: &Settings) -> u32 {
     }
 }
 
+/// When a character speaks, so the mouth moves with the voice that will be laid over the clip.
+fn speech_cue(shot: &Shot) -> Option<String> {
+    let windows: Vec<String> = shot.lines.iter().filter(|l| l.speaker.is_some()).map(|l| format!("{:.1} to {:.1} s", l.start, l.start + l.duration)).collect();
+    (!windows.is_empty()).then(|| format!("The speaking character's mouth moves only from {} and stays closed otherwise.", windows.join(" and from ")))
+}
+
 fn shot_prompt(shot: &Shot, settings: &Settings) -> String {
-    let base = match (settings.anime, shot.lines.iter().any(|l| l.speaker.is_some())) {
-        (false, _) => BASE_PROMPT.to_string(),
-        (true, false) => ANIME_PROMPT.to_string(),
-        (true, true) => format!("{ANIME_PROMPT} {TALKING}"),
-    };
-    match &shot.prompt {
-        Some(p) => format!("{p}. {base}"),
-        None => base,
+    let mut parts: Vec<String> = shot.prompt.iter().map(|p| format!("{p}.")).collect();
+    if !settings.anime {
+        parts.push(BASE_PROMPT.to_string());
+        return parts.join(" ");
     }
+    parts.push(ANIME_PROMPT.to_string());
+    if !settings.art.is_empty() {
+        parts.push(settings.art.clone());
+    }
+    parts.extend(speech_cue(shot));
+    if settings.sound {
+        let effects = shot.sound.as_deref().unwrap_or("the natural sounds of what happens on screen");
+        parts.push(format!("Sound: {effects}. {NO_VOICES}"));
+    }
+    parts.join(" ")
 }
 
 #[derive(Serialize)]
@@ -108,6 +124,8 @@ struct Item {
     frames: u32,
     steps: Option<u32>,
     seed: i64,
+    /// Generate the clip's sound as well.
+    audio: bool,
     out: String,
 }
 
@@ -175,6 +193,7 @@ fn plan_clips(project: &Project, shots: &[&Shot], settings: &Settings) -> Result
                 frames,
                 steps: settings.steps,
                 seed: settings.seed,
+                audio: settings.sound,
                 out: out.to_string_lossy().into(),
             });
         }
@@ -274,6 +293,40 @@ mod tests {
         assert_eq!(frames_for(0.01), 5);
         let frames = frames_for(6.3);
         assert!(frames % 4 == 1 && frames as f64 >= 6.3 * 24.0 && (frames as f64) < 6.3 * 24.0 + 4.0);
+    }
+
+    fn talking_shot(sound: Option<&str>) -> Shot {
+        Shot {
+            id: "k".into(),
+            page: "p.png".into(),
+            bbox: [0.0, 0.0, 1.0, 1.0],
+            duration: 5.0,
+            motion: crate::timeline::Motion::Static,
+            mode: Mode::Animate,
+            prompt: Some("He turns".into()),
+            skip: false,
+            extra: 0.0,
+            sound: sound.map(String::from),
+            characters: Vec::new(),
+            lines: vec![crate::timeline::Line { text_id: "t".into(), text: "hi".into(), speaker: Some("Kit".into()), start: 0.4, duration: 1.5, audio: None }],
+        }
+    }
+
+    #[test]
+    fn anime_prompt_carries_style_timing_and_sound() {
+        let settings = Settings { anime: true, art: "Fixed style.".into(), sound: true, ..Default::default() };
+        let prompt = shot_prompt(&talking_shot(Some("door knock")), &settings);
+        assert!(prompt.starts_with("He turns."));
+        assert!(prompt.contains("Fixed style."));
+        assert!(prompt.contains("mouth moves only from 0.4 to 1.9 s and stays closed otherwise"));
+        assert!(prompt.contains("Sound: door knock."));
+        assert!(prompt.contains("no speech, no voices, no music"));
+    }
+
+    #[test]
+    fn a_silent_clip_asks_for_no_sound() {
+        let settings = Settings { anime: true, ..Default::default() };
+        assert!(!shot_prompt(&talking_shot(Some("door knock")), &settings).contains("Sound:"));
     }
 
     #[test]

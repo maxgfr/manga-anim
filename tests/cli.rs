@@ -289,6 +289,51 @@ fn anime_needs_the_key_before_any_work() {
 }
 
 #[test]
+fn anime_max_duration_only_counts_what_is_kept() {
+    let env = anime_project();
+    let out = env.ok(&anime_args(&["--max-duration", "3"]));
+    assert!(out.contains("1 shots: 1 key images to draw, 1 clips to generate (about 3 s of video)"), "{out}");
+}
+
+#[test]
+fn anime_split_counts_every_part() {
+    let env = anime_project();
+    let out = env.ok(&anime_args(&["--max-duration", "3", "--split"]));
+    assert!(out.contains("2 shots: 2 key images to draw, 2 clips"), "{out}");
+}
+
+#[test]
+fn split_needs_a_duration() {
+    let env = anime_project();
+    let out = env.run(&anime_args(&["--split"]));
+    assert!(!out.status.success());
+    assert!(text(&out).contains("--max-duration"), "{}", text(&out));
+}
+
+#[test]
+fn anime_counts_the_faces_to_remember_and_writes_nothing_on_a_dry_run() {
+    let env = anime_project();
+    fs::create_dir_all(env.project("p/characters")).unwrap();
+    image::RgbImage::new(8, 8).save(env.project("p/characters/Kit.png")).unwrap();
+    let timeline = ANIME_TIMELINE.replace(r#""mode":"motion","lines":[]},
+    {"id":"p0001_k1""#, r#""mode":"motion","characters":["Kit"],"lines":[]},
+    {"id":"p0001_k1""#);
+    fs::write(env.project("p/timeline.json"), timeline).unwrap();
+    let out = env.ok(&anime_args(&[]));
+    assert!(out.contains("1 character faces to draw and remember"), "{out}");
+    assert!(!env.project("p/anime.toml").exists());
+}
+
+#[test]
+fn animate_stores_sound_and_characters() {
+    let env = anime_project();
+    env.ok(&["animate", "p", "p0001_k0", "--sound", "door knock", "--characters", "Kit,Ann"]);
+    let saved = fs::read_to_string(env.project("p/timeline.json")).unwrap();
+    assert!(saved.contains(r#""sound": "door knock""#), "{saved}");
+    assert!(saved.contains(r#""Ann""#), "{saved}");
+}
+
+#[test]
 fn anime_style_is_not_a_render_option() {
     let env = anime_project();
     let err = env.run(&["render", "p", "--style", "anime"]);

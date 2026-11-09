@@ -128,6 +128,12 @@ enum Cmd {
         /// Switch these shots back to motion mode.
         #[arg(long)]
         off: bool,
+        /// Anime: the sound effects of these shots ("knuckles knocking on a door").
+        #[arg(long)]
+        sound: Option<String>,
+        /// Anime: who is visible in these shots, by name in characters/ (Saito,Kit).
+        #[arg(long, value_delimiter = ',')]
+        characters: Vec<String>,
     },
     /// Render the video.
     Render {
@@ -172,6 +178,15 @@ enum Cmd {
         /// Model id, required with --backend openrouter or connect.
         #[arg(long)]
         model: Option<String>,
+        /// landscape, or vertical for TikTok, YouTube Shorts and Reels.
+        #[arg(long, value_enum, default_value = "landscape")]
+        format: render::Format,
+        /// Keep at most this many seconds, ending on a whole shot.
+        #[arg(long)]
+        max_duration: Option<f64>,
+        /// With --max-duration: render everything, as numbered parts of at most that length.
+        #[arg(long, requires = "max_duration")]
+        split: bool,
     },
     /// Turn an analyzed and voiced project into an anime episode: clean 16:9 key images, clips, full-frame render.
     Anime {
@@ -188,12 +203,30 @@ enum Cmd {
         /// Image-to-video model, required with --backend openrouter or connect unless --keyframes-only.
         #[arg(long)]
         video_model: Option<String>,
-        /// color: full-color anime stills; bw: clean black-and-white stills.
-        #[arg(long, value_enum, default_value = "color")]
-        style: anime::AnimeStyle,
-        /// Appearance notes added to every key image, to keep colors consistent ("Kit: red hair, green coat").
+        /// color or bw. Remembered in anime.toml (default: color).
+        #[arg(long, value_enum)]
+        style: Option<anime::AnimeStyle>,
+        /// Replace the art style description, the same in every prompt. Remembered in anime.toml.
+        #[arg(long)]
+        art: Option<String>,
+        /// Appearance notes added to every key image ("Kit: red hair, green coat"). Remembered in anime.toml.
         #[arg(long)]
         look: Option<String>,
+        /// Reuse the style bible, reference image and faces of another project, for the next episode.
+        #[arg(long)]
+        style_from: Option<String>,
+        /// Silent clips: no sound effects generated with the picture.
+        #[arg(long)]
+        no_sfx: bool,
+        /// landscape, or vertical for TikTok, YouTube Shorts and Reels (images and clips are generated vertically).
+        #[arg(long, value_enum, default_value = "landscape")]
+        format: render::Format,
+        /// Keep at most this many seconds, ending on a whole shot. Only what is kept is generated.
+        #[arg(long)]
+        max_duration: Option<f64>,
+        /// With --max-duration: generate everything, as numbered parts of at most that length.
+        #[arg(long, requires = "max_duration")]
+        split: bool,
         /// Write the missing motion prompts with this chat provider: openrouter, openai or google (billed).
         #[arg(long, requires = "direct_model")]
         direct_provider: Option<String>,
@@ -461,16 +494,30 @@ fn analyze(project: &Project, detector: &str, force: bool, review: Option<Review
     Ok(())
 }
 
-fn render(project: &Project, out: Option<PathBuf>, mut opts: render::RenderOptions, no_animate: bool, settings: animate::Settings) -> Result<()> {
+fn render(project: &Project, out: Option<PathBuf>, mut opts: render::RenderOptions, no_animate: bool, settings: animate::Settings, output: render::Output) -> Result<()> {
     let mut tl = Timeline::load(project)?;
     if no_animate {
         tl.shots.iter_mut().for_each(|s| s.mode = Mode::Motion);
     }
+    let vertical = output.format == render::Format::Vertical;
+    if vertical {
+        (tl.width, tl.height) = output.format.frame();
+    }
     let selected = render::select(&tl, &opts.shots)?;
-    let clips = animate::ensure_clips(project, &selected, &settings)?;
-    opts.out = out.unwrap_or_else(|| project.path(format!("out/{}.mp4", project.cfg.name)));
-    let path = render::run(project, &tl, &clips, &opts)?;
-    println!("video: {}", path.display());
+    let groups = match output.max_duration {
+        Some(_) => render::parts(&selected, output.max_duration, output.split),
+        None => vec![opts.shots.clone()],
+    };
+    let kept: Vec<&timeline::Shot> = match output.max_duration {
+        Some(_) => selected.iter().copied().filter(|s| groups.iter().flatten().any(|id| *id == s.id)).collect(),
+        None => selected,
+    };
+    let clips = animate::ensure_clips(project, &kept, &settings)?;
+    let suffix = if vertical { "-vertical" } else { "" };
+    opts.out = out.unwrap_or_else(|| project.path(format!("out/{}{suffix}.mp4", project.cfg.name)));
+    for path in render::run_parts(project, &tl, &clips, opts, groups)? {
+        println!("video: {}", path.display());
+    }
     Ok(())
 }
 
@@ -619,7 +666,7 @@ fn dispatch() -> Result<()> {
             let tl = timeline::run(&p, &opts, reset)?;
             println!("{} shots, {:.0}s → {}", tl.shots.len(), tl.total(), p.path("timeline.json").display());
         }
-        Cmd::Animate { project, shots, prompt, off } => {
+        Cmd::Animate { project, shots, prompt, off, sound, characters } => {
             // select() reads an empty list as "every shot".
             if shots.is_empty() {
                 bail!("specify at least one shot (id or number)");
@@ -632,16 +679,23 @@ fn dispatch() -> Result<()> {
                 if prompt.is_some() {
                     shot.prompt = prompt.clone();
                 }
+                if sound.is_some() {
+                    shot.sound = sound.clone();
+                }
+                if !characters.is_empty() {
+                    shot.characters = characters.clone();
+                }
                 println!("{} → {:?}", shot.id, shot.mode);
             }
             tl.save(&p)?;
         }
-        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area, backend, provider, model } => {
+        Cmd::Render { project, out, shots, style, no_animate, speaker, no_captions, captions, jobs, frames, steps, max_area, backend, provider, model, format, max_duration, split } => {
             let backend = Backend::parse(backend, provider, model, Kind::Video)?;
             let settings = animate::Settings { frames, steps, max_area, backend, ..Default::default() };
-            let captions = captions || (!no_captions && style == render::Style::Panels);
+            // A vertical page does not fill the frame: the text needs captions there too.
+            let captions = captions || (!no_captions && (style == render::Style::Panels || format == render::Format::Vertical));
             let opts = render::RenderOptions { out: PathBuf::new(), style, shots, show_speaker: speaker, captions, jobs, keyframes: Default::default() };
-            render(&Project::open(&project)?, out, opts, no_animate, settings)?;
+            render(&Project::open(&project)?, out, opts, no_animate, settings, render::Output { format, max_duration, split })?;
         }
         Cmd::Run { project, detector, no_animate } => {
             let p = Project::open(&project)?;
@@ -649,13 +703,13 @@ fn dispatch() -> Result<()> {
             voice::run(&p, false, &Backend::Local)?;
             timeline::run(&p, &timeline::Options::default(), false)?;
             let opts = render::RenderOptions { out: PathBuf::new(), style: render::Style::Scroll, shots: Vec::new(), show_speaker: false, captions: false, jobs: 4, keyframes: Default::default() };
-            render(&p, None, opts, no_animate, animate::Settings::default())?;
+            render(&p, None, opts, no_animate, animate::Settings::default(), render::Output { format: render::Format::Landscape, max_duration: None, split: false })?;
         }
-        Cmd::Anime { project, backend, provider, image_model, video_model, style, look, direct_provider, direct_model, shots, key_shots_only, keyframes_only, max_seconds, dry_run, max_area, out, jobs } => {
+        Cmd::Anime { project, backend, provider, image_model, video_model, style, art, look, style_from, no_sfx, format, max_duration, split, direct_provider, direct_model, shots, key_shots_only, keyframes_only, max_seconds, dry_run, max_area, out, jobs } => {
             let image = Backend::parse(backend, provider.clone(), image_model, Kind::Image)?;
             let video = if keyframes_only { Backend::Local } else { Backend::parse(backend, provider, video_model, Kind::Video)? };
             let director = anime::parse_director(direct_provider, direct_model)?;
-            let opts = anime::Options { image, video, style, look, director, shots, key_shots_only, keyframes_only, max_seconds, dry_run, max_area, out, jobs };
+            let opts = anime::Options { image, video, style, art, look, style_from, director, shots, key_shots_only, keyframes_only, sfx: !no_sfx, format, max_duration, split, max_seconds, dry_run, max_area, out, jobs };
             anime::run(&Project::open(&project)?, &opts)?;
         }
         Cmd::Characters { project, per_character } => {

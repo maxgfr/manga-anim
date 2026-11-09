@@ -64,6 +64,12 @@ pub struct Shot {
     /// Seconds added to (or removed from) the computed duration.
     #[serde(default)]
     pub extra: f64,
+    /// Anime: the sound effects of this shot ("knuckles knocking on a door").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    /// Anime: who is visible, by character bank name, on top of the speakers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub characters: Vec<String>,
     pub lines: Vec<Line>,
 }
 
@@ -164,6 +170,8 @@ pub fn build(project: &Project, analyses: &[PageAnalysis], audio: &AudioIndex, o
                 prompt: None,
                 skip: false,
                 extra: 0.0,
+                sound: None,
+                characters: Vec::new(),
                 lines: Vec::new(),
             });
         }
@@ -202,6 +210,8 @@ pub fn build(project: &Project, analyses: &[PageAnalysis], audio: &AudioIndex, o
                 prompt: None,
                 skip: false,
                 extra: 0.0,
+                sound: None,
+                characters: Vec::new(),
                 lines,
             });
         }
@@ -216,6 +226,8 @@ pub fn build(project: &Project, analyses: &[PageAnalysis], audio: &AudioIndex, o
                 shot.prompt = o.prompt.clone();
                 shot.skip = o.skip;
                 shot.extra = o.extra;
+                shot.sound = o.sound.clone();
+                shot.characters = o.characters.clone();
             }
         }
     }
@@ -310,12 +322,16 @@ mod tests {
         let mut first = build(&project(), &[analysis()], &audio, &opts, None);
         first.shots[1].mode = Mode::Animate;
         first.shots[1].prompt = Some("wind in the hair".into());
+        first.shots[1].sound = Some("wind".into());
+        first.shots[1].characters = vec!["Kit".into()];
         first.shots[2].skip = true;
         first.shots[2].extra = 1.0;
         let base = first.shots[2].duration;
         let second = build(&project(), &[analysis()], &audio, &opts, Some(&first));
         assert_eq!(second.shots[1].mode, Mode::Animate);
         assert_eq!(second.shots[1].prompt.as_deref(), Some("wind in the hair"));
+        assert_eq!(second.shots[1].sound.as_deref(), Some("wind"));
+        assert_eq!(second.shots[1].characters, ["Kit"]);
         assert!(second.shots[2].skip);
         assert!((second.shots[2].duration - (base + 1.0)).abs() < 1e-9);
     }

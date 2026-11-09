@@ -95,7 +95,7 @@ export function videoParams(entry, item) {
     durationS: pickDuration((item.frames - 1) / FPS, entry.durations),
     aspectRatio: pickRatio(item.width, item.height, entry.aspectRatios),
     resolution: pickResolution(Math.min(item.width, item.height), entry.resolutions),
-    ...(entry.audio === true ? { audio: false } : {}), // The render discards clip audio: do not pay for it.
+    ...(entry.audio === true ? { audio: Boolean(item.audio) } : {}), // Without it, do not pay for a sound track.
     ...(entry.seed === true ? { seed: item.seed } : {}),
   };
   return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
